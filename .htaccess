@@ -1,0 +1,13 @@
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ /index.php?$1 [L]
+RewriteRule ^\.git - [F,L]
+RewriteRule ^\.vscode - [F,L]
+
+
+<FilesMatch "^(\.env|composer\.lock)$">
+    Order allow,deny
+    Deny from all
+    ErrorDocument 403 /index.php/error404
+</FilesMatch>
