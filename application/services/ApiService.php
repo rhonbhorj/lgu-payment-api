@@ -128,8 +128,27 @@ class ApiService
         );
     }
 
-    public function generate_qr_api($postData)
+    public function generate_qr_api($data)
     {
+
+        $postdata = [
+            "endpoint" => "p2m-generateQR",
+            "reference_number" => $data['reference'],
+            "return_url"       => $data['return_url'],
+            "callback_url"     => $data['callback_url'],
+            "merchant_details" => [
+                "txn_amount"    => $data['amount'],
+                "method"        => "dynamic",
+                "txn_type"      => "1",
+                "name"          => $data['name'],
+                "mobile_number" => $data['mobile_number']
+            ],
+            "email_confirmation" => [
+                "email" => $data['email'],
+                "auto"  => "off"
+            ]
+        ];
+
         $tokenResponse = $this->generate_token();
         $token = null;
 
@@ -157,7 +176,7 @@ class ApiService
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
             CURLOPT_CUSTOMREQUEST => 'POST',
-            CURLOPT_POSTFIELDS => json_encode($postData),
+            CURLOPT_POSTFIELDS => json_encode($postdata),
             CURLOPT_HTTPHEADER => array(
                 "X-API-KEY: {$this->x_api_key}",
                 "X-API-USERNAME: {$this->x_api_username}",
