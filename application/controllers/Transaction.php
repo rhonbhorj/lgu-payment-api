@@ -56,7 +56,7 @@ class Transaction extends CI_Controller
 
         // $data['reference']
         $transaction = [
-            'trans_no'        => $apiData['reference_number'],
+            'trans_no'        => $apiData['reference_number'] ?? $data['reference'] ,
             'trans_payor'     => $data['name'],
             'trans_mobile'    => $data['mobile_number'],
             'trans_email'     => $data['email'],
