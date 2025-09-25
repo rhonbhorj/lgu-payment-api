@@ -13,6 +13,11 @@ class Transaction extends CI_Controller
         $this->load->model('Api_model');
         $this->load->library('../services/ApiService');
         header("Content-Type: application/json");
+        $this->load->model('Trans_Model', 'transaction');
+
+        header("Access-Control-Allow-Origin: http://lgu-payment-webapp.test"); // allow your frontend
+        header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
+        header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
     }
 
 
@@ -27,18 +32,52 @@ class Transaction extends CI_Controller
 
     public function dotransac()
     {
-
+        // Collect form inputs
         $data = [
             "reference"      => $this->generateReference(16),
+            "refid" => "REF-" . date('YmdHis'),
             "name"           => trim($this->input->post('name', TRUE)),
             "amount"         => trim($this->input->post('amount', TRUE)),
             "mobile_number"  => trim($this->input->post('mobile_number', TRUE)),
             "email"          => trim($this->input->post('email', TRUE)),
+            "convience_fee"  => trim($this->input->post('convience_fee', TRUE)),
+            "company"  => trim($this->input->post('company', TRUE)),
             "return_url"     => base_url('/success'),
             "callback_url"   => base_url('/success/postback')
         ];
 
+        // Call external API
         $result = $this->apiservice->generate_qr_api($data);
-        echo json_encode($result);
+
+        // Extract data from API response
+        $apiData = $result['data'] ?? [];
+
+        // Prepare transaction record
+
+        // $data['reference']
+        $transaction = [
+            'trans_no'        => $apiData['reference_number'],
+            'trans_payor'     => $data['name'],
+            'trans_mobile'    => $data['mobile_number'],
+            'trans_email'     => $data['email'],
+            'trans_company'     => $data['company'],
+            'trans_sub_total' => $data['amount'],
+            'trans_conv_fee'  => $data['convience_fee'],
+            'trans_refid'     => $data['refid'] ?? '',
+            'trans_txid'      => $apiData['txn_ref'] ?? '',
+            'trans_ref'      =>$data['reference'] ?? '',
+            'trans_raw_string' => $apiData['raw_string'] ?? '',   // ✅ store raw_string from API response
+            'trans_status'    =>'CREATED'
+        ];
+
+        // Save transaction
+        $insert_id = $this->transaction->create_transaction($transaction);
+
+        // Final response
+        echo json_encode([
+            'success'        => true,
+            'transaction_id' => $insert_id,
+            'api_result'     => $result
+        ]);
     }
 }
