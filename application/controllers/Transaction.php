@@ -144,7 +144,7 @@ class Transaction extends CI_Controller
             'api_status'      => isset($result['status_code']) ? $result['status_code'] : null,
             'api_request_at'  => date('Y-m-d H:i:s'),
             'api_response_at' => date('Y-m-d H:i:s'),
-            'api_authorized'  => !empty($validKey) ? 'Y' : 'N'
+            'api_authorized'  => ""
         ];
         $this->Api->insert_log($log_data);
 
