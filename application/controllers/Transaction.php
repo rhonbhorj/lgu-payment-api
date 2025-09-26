@@ -30,11 +30,27 @@ class Transaction extends CI_Controller
     }
 
 
+    public function dogetcategories()
+    {
+        $api_key = $this->input->get_request_header('X-API-KEY');
+        if (empty($api_key)) {
+            echo json_encode(['success' => false, 'message' => 'Missing API Key']);
+            return;
+        }
 
+        $validKey = $this->Api->validate_api_key($api_key);
+        if (!$validKey) {
+            echo json_encode(['success' => false, 'message' => 'Invalid or Inactive API Key']);
+            return;
+        }
+
+        $categories = $this->transaction->get_all_categories();
+        echo json_encode(['success' => true, 'data' => $categories]);
+    }
 
     public function dotransac()
     {
-        // 1. Check API Key
+        // === 1. Check API Key ===
         $api_key = $this->input->get_request_header('X-API-KEY');
         if (empty($api_key)) {
             echo json_encode([
@@ -53,10 +69,8 @@ class Transaction extends CI_Controller
             return;
         }
 
-        // 2. Get posted reference id
+        // === 2. Validate Reference ID ===
         $refid = trim($this->input->post('reference_number', TRUE));
-
-        // 3. Check if transaction with same refid already exists
         $existing = $this->transaction->check_refid_exists($refid);
         if ($existing) {
             echo json_encode([
@@ -67,7 +81,7 @@ class Transaction extends CI_Controller
             return;
         }
 
-        // 4. Collect other form inputs
+        // === 3. Sanitize Inputs ===
         $mobile = trim($this->input->post('mobile_number', TRUE));
         if (!empty($mobile)) {
             if (preg_match('/^09\d{9}$/', $mobile)) {
@@ -95,11 +109,11 @@ class Transaction extends CI_Controller
             "callback_url"   => base_url('/success/postback')
         ];
 
-        // 5. Call API Service
+        // === 4. Call API Service ===
         $result = $this->apiservice->generate_qr_api($data);
         $apiData = $result['data'] ?? [];
 
-        // 6. Prepare transaction data for DB
+        // === 5. Save Transaction ===
         $transaction = [
             'trans_no'         => $apiData['reference_number'] ?? $data['reference'],
             'trans_payor'      => $data['name'],
@@ -115,10 +129,26 @@ class Transaction extends CI_Controller
             'trans_status'     => 'CREATED'
         ];
 
-        // 7. Insert new transaction
         $insert_id = $this->transaction->create_transaction($transaction);
 
-        // 8. Final JSON response
+        // === 6. Log API Request/Response ===
+        $request_method = $this->input->method(TRUE); // POST/GET
+        $request_params = $request_method === 'POST'
+            ? $this->input->post(NULL, TRUE)
+            : $this->input->get(NULL, TRUE);
+
+        $log_data = [
+            'api_method'      => $request_method,
+            'api_params'      => json_encode($request_params),
+            'api_response'    => json_encode($result),
+            'api_status'      => isset($result['status_code']) ? $result['status_code'] : null,
+            'api_request_at'  => date('Y-m-d H:i:s'),
+            'api_response_at' => date('Y-m-d H:i:s'),
+            'api_authorized'  => !empty($validKey) ? 'Y' : 'N'
+        ];
+        $this->Api->insert_log($log_data);
+
+        // === 7. Final Response ===
         echo json_encode([
             'success'        => true,
             'transaction_id' => $insert_id,

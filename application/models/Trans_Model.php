@@ -21,4 +21,9 @@ class Trans_Model extends CI_Model {
     {
         return $this->db->get_where('tbl_transactions', ['trans_refid' => $refid])->row();
     }
+
+      public function get_all_categories()
+    {
+        return $this->db->get('tbl_categories')->result();
+    }
 }

@@ -35,4 +35,11 @@ class Api_model extends CI_Model
             return false; // no valid key
         }
     }
+
+        public function insert_log($data) {
+        $this->db->insert('tbl_api_logs', $data);
+        return $this->db->insert_id();
+    }
+
+    
 }
