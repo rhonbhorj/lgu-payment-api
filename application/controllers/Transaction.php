@@ -10,12 +10,12 @@ class Transaction extends CI_Controller
     public function __construct()
     {
         parent::__construct();
-        $this->load->model('Api_model');
+        $this->load->model('Api_model', 'Api');
         $this->load->library('../services/ApiService');
         header("Content-Type: application/json");
         $this->load->model('Trans_Model', 'transaction');
 
-        header("Access-Control-Allow-Origin: http://lgu-payment-webapp.test"); // allow your frontend
+        header("Access-Control-Allow-Origin:*");
         header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
         header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
     }
@@ -30,13 +30,46 @@ class Transaction extends CI_Controller
     }
 
 
+
+
     public function dotransac()
     {
-        // Collect form inputs
+        // 1. Check API Key
+        $api_key = $this->input->get_request_header('X-API-KEY');
+        if (empty($api_key)) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Missing API Key'
+            ]);
+            return;
+        }
 
+        $validKey = $this->Api->validate_api_key($api_key);
+        if (!$validKey) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Invalid or Inactive API Key'
+            ]);
+            return;
+        }
+
+        // 2. Get posted reference id
+        $refid = trim($this->input->post('reference_number', TRUE));
+
+        // 3. Check if transaction with same refid already exists
+        $existing = $this->transaction->check_refid_exists($refid);
+        if ($existing) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Transaction with this reference already exists',
+                'transaction_id' => $existing->trans_id
+            ]);
+            return;
+        }
+
+        // 4. Collect other form inputs
         $mobile = trim($this->input->post('mobile_number', TRUE));
         if (!empty($mobile)) {
-            // Convert 09xxxxxxxxx → 639xxxxxxxxx
             if (preg_match('/^09\d{9}$/', $mobile)) {
                 $mobile = '63' . substr($mobile, 1);
             }
@@ -46,50 +79,46 @@ class Transaction extends CI_Controller
 
         $email = trim($this->input->post('email', TRUE));
         if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $email = "dev@netglobalsolutions.net"; // fallback default
+            $email = "devs@netglobalsolutions.net"; // fallback
         }
 
         $data = [
             "reference"      => $this->generateReference(16),
-            "refid" => "REF-" . date('YmdHis'),
+            "refid"          => $refid,
             "name"           => trim($this->input->post('name', TRUE)),
             "amount"         => trim($this->input->post('amount', TRUE)),
             "mobile_number"  => $mobile,
             "email"          => $email,
             "convience_fee"  => trim($this->input->post('convience_fee', TRUE)),
-            "company"  => trim($this->input->post('company', TRUE)),
+            "company"        => trim($this->input->post('company', TRUE)),
             "return_url"     => base_url('/success'),
             "callback_url"   => base_url('/success/postback')
         ];
 
-        // Call external API
+        // 5. Call API Service
         $result = $this->apiservice->generate_qr_api($data);
-
-        // Extract data from API response
         $apiData = $result['data'] ?? [];
 
-        // Prepare transaction record
-
-        // $data['reference']
+        // 6. Prepare transaction data for DB
         $transaction = [
-            'trans_no'        => $apiData['reference_number'] ?? $data['reference'],
-            'trans_payor'     => $data['name'],
-            'trans_mobile'    => '09771741876',
-            'trans_email'     => 'devs@netglobalsolutions.net',
-            'trans_company'     => $data['company'],
-            'trans_sub_total' => $data['amount'],
-            'trans_conv_fee'  => $data['convience_fee'],
-            'trans_refid'     => $data['refid'] ?? '',
-            'trans_txid'      => $apiData['txn_ref'] ?? '',
-            'trans_ref'      => $data['reference'] ?? '',
-            'trans_raw_string' => $apiData['raw_string'] ?? '',   // ✅ store raw_string from API response
-            'trans_status'    => 'CREATED'
+            'trans_no'         => $apiData['reference_number'] ?? $data['reference'],
+            'trans_payor'      => $data['name'],
+            'trans_mobile'     => $mobile,
+            'trans_email'      => $email,
+            'trans_company'    => $data['company'],
+            'trans_sub_total'  => $data['amount'],
+            'trans_conv_fee'   => $data['convience_fee'],
+            'trans_refid'      => $data['refid'] ?? '',
+            'trans_txid'       => $apiData['txn_ref'] ?? '',
+            'trans_ref'        => $data['reference'] ?? '',
+            'trans_raw_string' => $apiData['raw_string'] ?? '',
+            'trans_status'     => 'CREATED'
         ];
 
-        // Save transaction
+        // 7. Insert new transaction
         $insert_id = $this->transaction->create_transaction($transaction);
 
-        // Final response
+        // 8. Final JSON response
         echo json_encode([
             'success'        => true,
             'transaction_id' => $insert_id,

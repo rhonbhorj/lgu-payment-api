@@ -14,7 +14,11 @@ class Trans_Model extends CI_Model {
      public function create_transaction($data)
     {
         $this->db->insert($this->table, $data);
-        return $this->db->insert_id(); // return the new transaction ID
+        return $this->db->insert_id(); 
     }
     
+    public function check_refid_exists($refid)
+    {
+        return $this->db->get_where('tbl_transactions', ['trans_refid' => $refid])->row();
+    }
 }
