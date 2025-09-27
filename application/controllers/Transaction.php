@@ -236,7 +236,7 @@ class Transaction extends CI_Controller
         $this->Api->insert_log($log_data);
 
         // === 11. Final Response ===
-        $endpoint = rtrim(api_url(), '/') . '/qr-print' . '?ref=' . $refid;
+        $endpoint = rtrim(api_url(), '/') . '/payment-form' . '?ref=' . $refid;
 
         $this->output
             ->set_status_header(200)
