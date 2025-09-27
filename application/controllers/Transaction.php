@@ -268,6 +268,7 @@ class Transaction extends CI_Controller
                 ]));
         }
 
+        // ✅ fetch transaction
         $transactions = $this->transaction->get_by_refid($ref_id);
 
         if (!$transactions) {
@@ -280,11 +281,11 @@ class Transaction extends CI_Controller
                 ]));
         }
 
-        // ✅ fetch raw items (force array from model)
+        // ✅ fetch raw items
         $raw_items = $this->transaction->get_items_by_transno($ref_id);
         $raw_items = is_array($raw_items) ? $raw_items : [];
 
-        // ✅ format items for UI
+        // ✅ format items
         $items = array_map(function ($item) {
             return [
                 'code'        => $item['part_code'] ?? '',
@@ -299,11 +300,11 @@ class Transaction extends CI_Controller
             ];
         }, $raw_items);
 
-        // ✅ compute totals from items
+        // ✅ compute totals
         $sub_total   = array_sum(array_column($items, 'total'));
         $conv_fee    = (float) $transactions->trans_conv_fee;
         $grand_total = $sub_total + $conv_fee;
-
+        
         // ✅ build response
         $response = [
             'success'     => true,
@@ -320,6 +321,24 @@ class Transaction extends CI_Controller
             'qr_url'      => $transactions->trans_raw_string,
             'items'       => $items
         ];
+
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        // ✅ build static callback data
+        $call_back_data = [
+            'reference_number' => $ref_id,
+            'callback_data'    => json_encode($data),
+            'date'             => date('Y-m-d H:i:s'),
+            'txid'             => $transactions->trans_txid,
+            'reference_num'    => $transactions->trans_ref,
+            'callback_status'  => "SUCCESS",
+            'client_data_resp' => json_encode([
+                "ip_address"  => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
+                "user_agent"  => $_SERVER['HTTP_USER_AGENT'] ?? 'STATIC-CLIENT'
+            ])
+        ];
+
+        $this->transaction->insert_callback($call_back_data);
 
         return $this->output
             ->set_status_header(200)

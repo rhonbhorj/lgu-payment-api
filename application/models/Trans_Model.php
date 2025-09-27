@@ -118,4 +118,9 @@ class Trans_Model extends CI_Model
             ->get('tbl_transaction_particulars')
             ->result_array();
     }
+
+     public function insert_callback($data)
+    {
+        return $this->db->insert('tbl_transaction_callback', $data);
+    }
 }
