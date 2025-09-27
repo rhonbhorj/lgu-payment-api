@@ -66,5 +66,5 @@ $route['api-register'] = 'auth/register';
 $route['api-create-transactions'] = 'transaction/dotransac';
 $route['api-categories'] = 'transaction/dogetcategories';
 
-$route['api-awdawdwa'] = 'transaction/awdwaaww';
+$route['dotransac_checkref'] = 'transaction/dotransac_checkref';
 

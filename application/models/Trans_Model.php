@@ -103,4 +103,19 @@ class Trans_Model extends CI_Model
             ->get('tbl_transaction_callback')
             ->row();
     }
+
+    public function get_by_refid($ref_id)
+    {
+        return $this->db->where('trans_refid', $ref_id)
+            ->get('tbl_transactions')
+            ->row();
+    }
+
+    public function get_items_by_transno($trans_no)
+    {
+        return $this->db
+            ->where('part_transno', $trans_no)
+            ->get('tbl_transaction_particulars')
+            ->result_array();
+    }
 }

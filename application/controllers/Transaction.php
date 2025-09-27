@@ -254,130 +254,79 @@ class Transaction extends CI_Controller
         exit;
     }
 
-
-    public function doTransac_postback($ref_id = 0)
+    public function dotransac_checkref($ref_id = 0)
     {
         $ref_id = $this->input->get('ref_id', TRUE);
-        $this->output->set_content_type('application/json');
 
-        $data = json_decode(file_get_contents('php://input'), true);
-
-        if (!$data || empty($ref_id)) {
-            echo json_encode([
-                'status' => 'error',
-                'message' => 'Invalid request',
-            ]);
-            return;
+        if (empty($ref_id)) {
+            return $this->output
+                ->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Missing ref_id'
+                ]));
         }
 
-        // Prepare callback data
-        $callback_data = [
-            'reference_number' => $ref_id,
-            'callback_data' => json_encode($data),
-            'date' => date('Y-m-d H:i:s'),
-            'txid' => $data['TxId'] ?? null,
-            'reference_num' => $data['referenceNumber'] ?? null,
-            'callback_status' => $data['status'] ?? null,
+        $transactions = $this->transaction->get_by_refid($ref_id);
+
+        if (!$transactions) {
+            return $this->output
+                ->set_status_header(404)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Transaction not found'
+                ]));
+        }
+
+        // ✅ fetch raw items (force array from model)
+        $raw_items = $this->transaction->get_items_by_transno($ref_id);
+        $raw_items = is_array($raw_items) ? $raw_items : [];
+
+        // ✅ format items for UI
+        $items = array_map(function ($item) {
+            return [
+                'code'        => $item['part_code'] ?? '',
+                'description' => $item['particulars'] ?? '',
+                'qty'         => isset($item['part_qty']) ? (int)$item['part_qty'] : 0,
+                'amount'      => isset($item['part_amount']) ? (float)$item['part_amount'] : 0,
+                'other_fees'  => isset($item['part_other_fees']) ? (float)$item['part_other_fees'] : 0,
+                'total'       => (
+                    ((float)($item['part_amount'] ?? 0) * (int)($item['part_qty'] ?? 0))
+                    + (float)($item['part_other_fees'] ?? 0)
+                ),
+            ];
+        }, $raw_items);
+
+        // ✅ compute totals from items
+        $sub_total   = array_sum(array_column($items, 'total'));
+        $conv_fee    = (float) $transactions->trans_conv_fee;
+        $grand_total = $sub_total + $conv_fee;
+
+        // ✅ build response
+        $response = [
+            'success'     => true,
+            'ref_id'      => $transactions->trans_refid,
+            'name'        => $transactions->trans_payor,
+            'company'     => $transactions->trans_company,
+            'mobile'      => $transactions->trans_mobile,
+            'email'       => $transactions->trans_email,
+            'sub_total'   => $sub_total,
+            'conv_fee'    => $conv_fee,
+            'grand_total' => $grand_total,
+            'deparment'   => 'BPLS',
+            'status'      => $transactions->trans_status,
+            'qr_url'      => $transactions->trans_raw_string,
+            'items'       => $items
         ];
 
-        $status_response = $this->status_get($data['status'] ?? 0);
-
-        // Check if callback already exists
-        if ($this->transaction->callback_data_detail($ref_id)) {
-            echo json_encode([
-                'status' => 'error',
-                'message' => 'Callback data already exists',
-            ]);
-            return;
-        }
-
-        // Get transaction details
-        $transaction = $this->transaction->findByRefId($ref_id);
-        if (!$transaction) {
-            echo json_encode([
-                'status' => 'error',
-                'message' => 'No transaction found for this reference',
-            ]);
-            return;
-        }
-
-        $type = 'CASHLESS';
-        $currentDateTime = date('YmdHis');
-        if ($transaction->Status == 'CREATED') {
-            $this->transaction->doInsertCallback($callback_data);
-
-            switch ($data['status']) {
-                case 4: // SUCCESS
-                    // Update transaction status
-                    if ($this->transaction->update_status_by_ref($ref_id, $type, $status_response, $currentDateTime, $callback_data['txid'])) {
-
-                        // Insert services if provided
-                        if (!empty($data['services']) && is_array($data['services'])) {
-                            foreach ($data['services'] as $srv) {
-                                $this->transaction->insert_service($ref_id, $srv);
-                            }
-                        }
-
-                        // Recalculate other fees
-                        $other_fees = $this->transaction->getTotalOtherFee($ref_id);
-
-                        // Fetch updated transaction details
-                        $transactionDetail = $this->transaction->getTransactionDetails($ref_id);
-
-                        echo json_encode([
-                            'status' => 'success',
-                            'message' => 'Payment successful and services recorded.',
-                            'other_fees' => $other_fees,
-                            'transaction' => $transactionDetail
-                        ]);
-                        return;
-                    }
-                    break;
-
-                case 1:
-                case 2:
-                case 3: // started, pending, failed
-                    $status_labels = ['STARTED', 'PENDING', 'FAILED'];
-                    $index = $data['status'] - 1;
-                    if ($this->transaction->update_status_by_ref($ref_id, $type, $status_response, $currentDateTime, $callback_data['txid'])) {
-                        echo json_encode([
-                            'status' => $status_labels[$index],
-                            'message' => 'Status updated',
-                        ]);
-                        return;
-                    }
-                    break;
-
-                default:
-                    echo json_encode([
-                        'status' => 'error',
-                        'message' => 'Unknown status',
-                    ]);
-                    return;
-            }
-
-            echo json_encode([
-                'status' => 'error',
-                'message' => 'Internal error updating status',
-            ]);
-            return;
-        } else {
-            // Transaction already processed, just update status
-            if ($this->transaction->update_status_by_ref($ref_id, $type, $status_response, $currentDateTime, $callback_data['txid'])) {
-                echo json_encode([
-                    'status' => 'success',
-                    'message' => 'Transaction already processed. Status updated.',
-                ]);
-                return;
-            } else {
-                echo json_encode([
-                    'status' => 'error',
-                    'message' => 'Internal error updating status',
-                ]);
-                return;
-            }
-        }
+        return $this->output
+            ->set_status_header(200)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($response));
     }
+
 
     private function status_get($status)
     {
