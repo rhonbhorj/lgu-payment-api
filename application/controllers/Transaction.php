@@ -14,10 +14,6 @@ class Transaction extends CI_Controller
         $this->load->library('../services/ApiService');
         header("Content-Type: application/json");
         $this->load->model('Trans_Model', 'transaction');
-
-        header("Access-Control-Allow-Origin:*");
-        header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
-        header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
     }
 
 
@@ -101,7 +97,7 @@ class Transaction extends CI_Controller
         // === 2. Parse Input (JSON or form-data) ===
         $raw_input = json_decode($this->input->raw_input_stream, true);
 
-        $refid   = trim($raw_input['reference_number'] ?? $this->input->post('reference_number', TRUE));
+        $ref_id   = trim($raw_input['reference_number'] ?? $this->input->post('reference_number', TRUE));
         $name    = trim($raw_input['name'] ?? $this->input->post('name', TRUE));
         $amount  = trim($raw_input['amount'] ?? $this->input->post('amount', TRUE));
         $company = trim($raw_input['company'] ?? $this->input->post('company', TRUE));
@@ -111,7 +107,7 @@ class Transaction extends CI_Controller
         $raw_input = json_decode($this->input->raw_input_stream, true); // supports JSON requests
         $services  = $raw_input['services'] ?? [];
         // === 3. Validate Reference ID ===
-        $existing = $this->transaction->check_refid_exists($refid);
+        $existing = $this->transaction->check_refid_exists($ref_id);
         if ($existing) {
             $this->output
                 ->set_status_header(400) // Bad Request
@@ -162,17 +158,17 @@ class Transaction extends CI_Controller
             // Check if first element is an array → multiple services
             if (is_array($services[0])) {
                 foreach ($services as $srv) {
-                    $this->transaction->insert_service($refid, $srv);
+                    $this->transaction->insert_service($ref_id, $srv);
                 }
             } else {
                 // Single service
-                $this->transaction->insert_service($refid, $services);
+                $this->transaction->insert_service($ref_id, $services);
             }
         }
 
         $data = [
             "reference"      => $this->generateReference(16),
-            "refid"          => $refid,
+            "refid"          => $ref_id,
             "name"           => $name,
             "amount"         => $amount,
             "mobile_number"  => $mobile,
@@ -180,7 +176,9 @@ class Transaction extends CI_Controller
             "convience_fee"  => $conv_fee,
             "company"        => $company,
             "return_url"     => base_url('/success'),
-            "callback_url"   => base_url('/success/postback')
+            "callback_url"   => base_url() . '/api-dotransac_postback?ref_id=' . $ref_id
+
+
         ];
 
         // === 8. Call API Service ===
@@ -236,7 +234,7 @@ class Transaction extends CI_Controller
         $this->Api->insert_log($log_data);
 
         // === 11. Final Response ===
-        $endpoint = rtrim(api_url(), '/') . '/payment-form' . '?ref=' . $refid;
+        $endpoint = rtrim(api_url(), '/') . '/payment-form' . '?ref=' . $ref_id;
 
         $this->output
             ->set_status_header(200)
@@ -304,7 +302,7 @@ class Transaction extends CI_Controller
         $sub_total   = array_sum(array_column($items, 'total'));
         $conv_fee    = (float) $transactions->trans_conv_fee;
         $grand_total = $sub_total + $conv_fee;
-        
+
         // ✅ build response
         $response = [
             'success'     => true,
@@ -322,40 +320,123 @@ class Transaction extends CI_Controller
             'items'       => $items
         ];
 
-        $data = json_decode(file_get_contents('php://input'), true);
-
-        // ✅ build static callback data
-        $call_back_data = [
-            'reference_number' => $ref_id,
-            'callback_data'    => json_encode($data),
-            'date'             => date('Y-m-d H:i:s'),
-            'txid'             => $transactions->trans_txid,
-            'reference_num'    => $transactions->trans_ref,
-            'callback_status'  => "SUCCESS",
-            'client_data_resp' => json_encode([
-                "ip_address"  => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
-                "user_agent"  => $_SERVER['HTTP_USER_AGENT'] ?? 'STATIC-CLIENT'
-            ])
-        ];
-
-        $this->transaction->insert_callback($call_back_data);
-
         return $this->output
             ->set_status_header(200)
             ->set_content_type('application/json')
             ->set_output(json_encode($response));
     }
 
-
-    private function status_get($status)
+    public function dotransac_postback($ref_id = 0)
     {
-        $statuses = [
-            1 => 'STARTED',
-            2 => 'PENDING',
-            3 => 'FAILED',
-            4 => 'SUCCESS'
+        $ref_id = $this->input->get('ref_id', TRUE)
+            ?? $this->input->get('refid', TRUE)
+            ?? $ref_id;
+
+        if (empty($ref_id)) {
+            return $this->output
+                ->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Missing ref_id'
+                ]));
+        }
+
+        $transactions = $this->transaction->get_by_refid($ref_id);
+
+        if (!$transactions) {
+            return $this->output
+                ->set_status_header(404)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Transaction not found'
+                ]));
+        }
+
+        $raw_input = file_get_contents("php://input");
+        $data = json_decode($raw_input, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return $this->output
+                ->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Invalid JSON payload'
+                ]));
+        }
+
+        // ✅ Extract only the first object inside callback_data
+        $callbackData = $data['callback_data'][0] ?? null;
+
+        if (!$callbackData) {
+            return $this->output
+                ->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Missing callback_data'
+                ]));
+        }
+
+        // ✅ Use ONLY root-level callback_status
+        $statusValue = isset($data['callback_status'])
+            ? $data['callback_status']
+            : $transactions->trans_status;
+
+        $statusLabel = $this->status_get($statusValue);
+
+        // ✅ Encode only callbackData object for DB
+        $callbackJson = json_encode($callbackData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        // ✅ Prevent duplicate inserts (check by txid + ref_id)
+        $exists = $this->transaction->callback_exists($transactions->trans_txid, $ref_id);
+
+        if ($exists) {
+            return $this->output
+                ->set_status_header(200)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Duplicate callback - already processed'
+                ], JSON_PRETTY_PRINT));
+        }
+
+        // ✅ Insert new callback record
+        $call_back_data = [
+            'reference_number' => $ref_id,
+            'callback_data'    => $callbackJson,
+            'date'             => date('Y-m-d H:i:s'),
+            'txid'             => $transactions->trans_txid,
+            'reference_num'    => $transactions->trans_ref,
+            'callback_status'  => $statusLabel
+        ];
+        $this->transaction->insert_callback($call_back_data);
+
+        // ✅ Update transaction table with status label
+        $this->transaction->update_status($transactions->trans_id, $statusLabel);
+
+        // ✅ Respond with success only
+        return $this->output
+            ->set_status_header(200)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'success' => true,
+                'message' => 'Callback processed successfully'
+            ], JSON_PRETTY_PRINT));
+    }
+
+
+    public function status_get($type)
+    {
+        $map = [
+            '1' => 'CREATED',
+            '2' => 'PENDING',
+            '3' => 'FAILED',
+            '4' => 'PAID'
         ];
 
-        return $statuses[$status] ?? 'unknown';
+        return $map[(string)$type] ?? 'UNKNOWN';
     }
 }

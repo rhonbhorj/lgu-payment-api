@@ -119,8 +119,24 @@ class Trans_Model extends CI_Model
             ->result_array();
     }
 
-     public function insert_callback($data)
+    public function insert_callback($data)
     {
         return $this->db->insert('tbl_transaction_callback', $data);
+    }
+
+
+    public function update_status($trans_id, $status_label)
+    {
+        return $this->db->where('trans_id', $trans_id)
+            ->update('tbl_transactions', ['trans_status' => $status_label]);
+    }
+
+    public function callback_exists($txid, $ref_id)
+    {
+        $this->db->where('txid', $txid);
+        $this->db->where('reference_number', $ref_id);
+        $query = $this->db->get('tbl_transaction_callback');
+
+        return $query->num_rows() > 0;
     }
 }
