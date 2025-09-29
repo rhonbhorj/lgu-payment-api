@@ -14,6 +14,10 @@ class Transaction extends CI_Controller
         $this->load->library('../services/ApiService');
         header("Content-Type: application/json");
         $this->load->model('Trans_Model', 'transaction');
+
+        header("Access-Control-Allow-Origin: *"); 
+        header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
+        header("Access-Control-Allow-Headers: Content-Type, Content-Length, Accept-Encoding, X-Requested-With, Authorization, X-API-KEY");
     }
 
 
@@ -431,7 +435,7 @@ class Transaction extends CI_Controller
     {
         $ref_id = $this->input->get('ref_id', TRUE) ?? $ref_id;
 
-    
+
         if (empty($ref_id)) {
             return $this->output
                 ->set_status_header(400)
