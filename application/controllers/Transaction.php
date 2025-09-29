@@ -15,7 +15,7 @@ class Transaction extends CI_Controller
         header("Content-Type: application/json");
         $this->load->model('Trans_Model', 'transaction');
 
-        header("Access-Control-Allow-Origin: *"); 
+        header("Access-Control-Allow-Origin: *");
         header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
         header("Access-Control-Allow-Headers: Content-Type, Content-Length, Accept-Encoding, X-Requested-With, Authorization, X-API-KEY");
     }
@@ -346,9 +346,10 @@ class Transaction extends CI_Controller
                 ]));
         }
 
-        $transactions = $this->transaction->get_by_refid($ref_id);
+        // ✅ Fetch transaction
+        $transaction = $this->transaction->get_by_refid($ref_id);
 
-        if (!$transactions) {
+        if (!$transaction) {
             return $this->output
                 ->set_status_header(404)
                 ->set_content_type('application/json')
@@ -358,6 +359,7 @@ class Transaction extends CI_Controller
                 ]));
         }
 
+        // ✅ Parse incoming JSON
         $raw_input = file_get_contents("php://input");
         $data = json_decode($raw_input, true);
 
@@ -371,32 +373,17 @@ class Transaction extends CI_Controller
                 ]));
         }
 
-        // ✅ Extract only the first object inside callback_data
-        $callbackData = $data['callback_data'][0] ?? null;
+        // ✅ Extract fields from raw JSON
+        $statusValue   = $data['status'] ?? $transaction->trans_status;
+        $statusLabel   = $this->status_get($statusValue);
+        $txId          = $data['TxId'] ?? $transaction->trans_txid;
+        $referenceNum  = $data['TxRef'] ?? $transaction->trans_ref;
 
-        if (!$callbackData) {
-            return $this->output
-                ->set_status_header(400)
-                ->set_content_type('application/json')
-                ->set_output(json_encode([
-                    'success' => false,
-                    'message' => 'Missing callback_data'
-                ]));
-        }
+        // ✅ Encode whole callback for saving
+        $callbackJson = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        // ✅ Use ONLY root-level callback_status
-        $statusValue = isset($data['callback_status'])
-            ? $data['callback_status']
-            : $transactions->trans_status;
-
-        $statusLabel = $this->status_get($statusValue);
-
-        // ✅ Encode only callbackData object for DB
-        $callbackJson = json_encode($callbackData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-        // ✅ Prevent duplicate inserts (check by txid + ref_id)
-        $exists = $this->transaction->callback_exists($transactions->trans_txid, $ref_id);
-
+        // ✅ Prevent duplicate inserts
+        $exists = $this->transaction->callback_exists($txId, $ref_id);
         if ($exists) {
             return $this->output
                 ->set_status_header(200)
@@ -407,29 +394,49 @@ class Transaction extends CI_Controller
                 ], JSON_PRETTY_PRINT));
         }
 
-        // ✅ Insert new callback record
+        // ✅ Insert callback
         $call_back_data = [
             'reference_number' => $ref_id,
             'callback_data'    => $callbackJson,
             'date'             => date('Y-m-d H:i:s'),
-            'txid'             => $transactions->trans_txid,
-            'reference_num'    => $transactions->trans_ref,
+            'txid'             => $txId,
+            'reference_num'    => $referenceNum,
             'callback_status'  => $statusLabel
         ];
         $this->transaction->insert_callback($call_back_data);
 
-        // ✅ Update transaction table with status label
-        $this->transaction->update_status($transactions->trans_id, $statusLabel);
+        // ✅ Update transaction status
+        $this->transaction->update_status($transaction->trans_id, $statusLabel);
 
-        // ✅ Respond with success only
+        // ✅ Success response
         return $this->output
             ->set_status_header(200)
             ->set_content_type('application/json')
             ->set_output(json_encode([
                 'success' => true,
-                'message' => 'Callback processed successfully'
+                'message' => 'Callback processed successfully',
+                'status'  => $statusLabel
             ], JSON_PRETTY_PRINT));
     }
+
+
+
+    public function status_get($type)
+    {
+        $map = [
+            '1' => 'CREATED',
+            '2' => 'PENDING',
+            '3' => 'FAILED',
+            '4' => 'PAID',
+            'CREATED' => 'CREATED',
+            'PENDING' => 'PENDING',
+            'FAILED'  => 'FAILED',
+            'PAID'    => 'PAID'
+        ];
+
+        return $map[(string)$type] ?? 'UNKNOWN';
+    }
+
 
     public function dotransac_status($ref_id = 0)
     {
@@ -480,23 +487,5 @@ class Transaction extends CI_Controller
             ->set_status_header(200)
             ->set_content_type('application/json')
             ->set_output(json_encode($response, JSON_PRETTY_PRINT));
-    }
-
-
-
-    public function status_get($type)
-    {
-        $map = [
-            '1' => 'CREATED',
-            '2' => 'PENDING',
-            '3' => 'FAILED',
-            '4' => 'PAID',
-            'CREATED' => 'CREATED',
-            'PENDING' => 'PENDING',
-            'FAILED'  => 'FAILED',
-            'PAID'    => 'PAID'
-        ];
-
-        return $map[(string)$type] ?? 'UNKNOWN';
     }
 }
