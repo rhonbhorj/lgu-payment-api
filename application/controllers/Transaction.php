@@ -427,6 +427,58 @@ class Transaction extends CI_Controller
             ], JSON_PRETTY_PRINT));
     }
 
+    public function dotransac_status($ref_id = 0)
+    {
+        $ref_id = $this->input->get('ref_id', TRUE) ?? $ref_id;
+
+    
+        if (empty($ref_id)) {
+            return $this->output
+                ->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Missing ref_id'
+                ], JSON_PRETTY_PRINT));
+        }
+
+        // ✅ Fetch transaction
+        $transaction = $this->transaction->get_by_refid($ref_id);
+
+        if (!$transaction) {
+            return $this->output
+                ->set_status_header(404)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Transaction not found'
+                ], JSON_PRETTY_PRINT));
+        }
+
+        // ✅ Normalize status
+        $status = $this->status_get($transaction->trans_status);
+
+        // ✅ Choose best timestamp available
+        $updatedAt = $transaction->updated_at
+            ?? $transaction->trans_updated
+            ?? $transaction->trans_date
+            ?? null;
+
+        // ✅ Build response
+        $response = [
+            'success'    => true,
+            'ref_id'     => $transaction->trans_refid,
+            'txn_ref'    => $transaction->trans_txid,
+            'status'     => $status
+        ];
+
+        return $this->output
+            ->set_status_header(200)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($response, JSON_PRETTY_PRINT));
+    }
+
+
 
     public function status_get($type)
     {
@@ -434,7 +486,11 @@ class Transaction extends CI_Controller
             '1' => 'CREATED',
             '2' => 'PENDING',
             '3' => 'FAILED',
-            '4' => 'PAID'
+            '4' => 'PAID',
+            'CREATED' => 'CREATED',
+            'PENDING' => 'PENDING',
+            'FAILED'  => 'FAILED',
+            'PAID'    => 'PAID'
         ];
 
         return $map[(string)$type] ?? 'UNKNOWN';

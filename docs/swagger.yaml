@@ -1,11 +1,40 @@
 openapi: 3.0.0
 info:
   title: LGU Payment API
-  description: API documentation for the LGU Payment System
+  description: API documentation for the LGU Payment System (CodeIgniter Transaction Controller)
   version: "1.0.0"
+
 servers:
   - url: http://lgu-payment-api.test/
+
+tags:
+  - name: Transaction
+    description: Transaction-related endpoints
+
 paths:
+  /api-categories:
+    get:
+      tags:
+        - Transaction
+      summary: Get all categories
+      description: Returns a list of all available categories.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: List of categories
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  - cat_code: CAT01
+                    cat_category: Business Permit
+                  - cat_code: CAT02
+                    cat_category: Real Property Tax
+        '401':
+          description: Missing or invalid API key
+
   /api-create-transactions:
     post:
       tags:
@@ -28,28 +57,20 @@ paths:
               properties:
                 reference_number:
                   type: string
-                  description: Unique reference number for the transaction
                 name:
                   type: string
-                  description: Name of the payor
                 amount:
                   type: number
-                  description: Transaction amount
                 company:
                   type: string
-                  description: Company name
                 mobile_number:
                   type: string
-                  description: Mobile number of the payor
                 email:
                   type: string
-                  description: Email address of the payor
                 convience_fee:
                   type: number
-                  description: Convenience fee
                 services:
                   type: array
-                  description: List of services for the transaction
                   items:
                     type: object
                     properties:
@@ -61,64 +82,37 @@ paths:
                         type: integer
                       amount:
                         type: number
+            example:
+              reference_number: REF123456
+              name: Juan Dela Cruz
+              amount: 1000
+              company: LGU-BPLS
+              mobile_number: 09171234567
+              email: juan@example.com
+              convience_fee: 20
+              services:
+                - code: SVC01
+                  description: Mayor's Permit
+                  qty: 1
+                  amount: 1000
       responses:
         '200':
           description: Transaction created successfully
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  status_code:
-                    type: integer
-                  response:
-                    type: object
-                    properties:
-                      redirect_url:
-                        type: string
-                      create_at:
-                        type: string
-                        format: date-time
-                      txn_ref:
-                        type: string
+              example:
+                success: true
+                status_code: 200
+                response:
+                  redirect_url: http://lgu-payment-api.test/payment-form?ref=REF123456
+                  create_at: 2025-09-29 12:34:56
+                  txn_ref: TXN123456
         '400':
-          description: Bad request (missing or invalid fields)
+          description: Missing required fields or duplicate transaction
         '401':
           description: Missing or invalid API key
         '502':
           description: Failed to generate transaction from API
-
-  /api-categories:
-    get:
-      tags:
-        - Transaction
-      summary: Get all categories
-      description: Returns a list of all available categories.
-      security:
-        - ApiKeyAuth: []
-      responses:
-        '200':
-          description: List of categories
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  data:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        cat_code:
-                          type: string
-                        cat_category:
-                          type: string
-        '401':
-          description: Missing or invalid API key
 
   /api-dotransac_checkref:
     get:
@@ -138,50 +132,26 @@ paths:
           description: Transaction found
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  ref_id:
-                    type: string
-                  name:
-                    type: string
-                  company:
-                    type: string
-                  mobile:
-                    type: string
-                  email:
-                    type: string
-                  sub_total:
-                    type: number
-                  conv_fee:
-                    type: number
-                  grand_total:
-                    type: number
-                  deparment:
-                    type: string
-                  status:
-                    type: string
-                  qr_url:
-                    type: string
-                  items:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        code:
-                          type: string
-                        description:
-                          type: string
-                        qty:
-                          type: integer
-                        amount:
-                          type: number
-                        other_fees:
-                          type: number
-                        total:
-                          type: number
+              example:
+                success: true
+                ref_id: REF123456
+                name: Juan Dela Cruz
+                company: LGU-BPLS
+                mobile: 639171234567
+                email: juan@example.com
+                sub_total: 1000
+                conv_fee: 20
+                grand_total: 1020
+                deparment: BPLS
+                status: CREATED
+                qr_url: https://sample-qr.com/txn.png
+                items:
+                  - code: SVC01
+                    description: Mayor's Permit
+                    qty: 1
+                    amount: 1000
+                    other_fees: 0
+                    total: 1000
         '400':
           description: Missing ref_id
         '404':
@@ -209,25 +179,54 @@ paths:
               properties:
                 callback_status:
                   type: string
-                  description: Status value from payment gateway
                 callback_data:
                   type: array
                   items:
                     type: object
+            example:
+              callback_status: PAID
+              callback_data:
+                - txn_id: TXN123456
+                  amount: 1000
+                  payment_date: "2025-09-29T12:45:00Z"
       responses:
         '200':
           description: Callback processed successfully or duplicate
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
+              example:
+                success: true
+                message: Callback processed successfully
         '400':
           description: Missing ref_id or invalid JSON
+        '404':
+          description: Transaction not found
+
+  /api-dotransac_status:
+    get:
+      tags:
+        - Transaction
+      summary: Get transaction status
+      description: Returns the status of a transaction by reference ID.
+      parameters:
+        - in: query
+          name: ref_id
+          schema:
+            type: string
+          required: true
+          description: Transaction reference ID
+      responses:
+        '200':
+          description: Transaction status found
+          content:
+            application/json:
+              example:
+                success: true
+                ref_id: REF123456
+                txn_ref: TXN123456
+                status: PAID
+        '400':
+          description: Missing ref_id
         '404':
           description: Transaction not found
 
@@ -237,7 +236,3 @@ components:
       type: apiKey
       in: header
       name: X-API-KEY
-  
-tags:
-  - name: Transaction
-    description: Transaction-related endpoints

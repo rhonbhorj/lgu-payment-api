@@ -67,5 +67,6 @@ $route['api-create-transactions'] = 'transaction/dotransac';
 $route['api-categories'] = 'transaction/dogetcategories';
 $route['api-dotransac_checkref'] = 'transaction/dotransac_checkref';
 $route['api-dotransac_postback'] = 'transaction/dotransac_postback';
+$route['api-dotransac_checkstatus'] = 'transaction/dotransac_status';
 
 
