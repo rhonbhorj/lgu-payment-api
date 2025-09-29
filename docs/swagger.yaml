@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: LGU Payment API
-  description: API documentation for the LGU Payment System (CodeIgniter Transaction Controller)
+  description: API documentation for LGU Payment System Transaction Controller
   version: "1.0.0"
 
 servers:
@@ -9,37 +9,43 @@ servers:
 
 tags:
   - name: Transaction
-    description: Transaction-related endpoints
+    description: Endpoints for payment transactions
 
 paths:
-  /api-categories:
+  /api-dogetcategories:
     get:
       tags:
         - Transaction
       summary: Get all categories
-      description: Returns a list of all available categories.
+      description: Returns the list of available categories.
       security:
         - ApiKeyAuth: []
       responses:
-        '200':
-          description: List of categories
+        "200":
+          description: Successful response
           content:
             application/json:
               example:
                 success: true
                 data:
-                  - cat_code: CAT01
-                    cat_category: Business Permit
-                  - cat_code: CAT02
-                    cat_category: Real Property Tax
-        '401':
-          description: Missing or invalid API key
+                  - cat_code: "BPLS"
+                    cat_category: "Business Permit"
+                  - cat_code: "RPT"
+                    cat_category: "Real Property Tax"
+        "401":
+          description: Missing or invalid API Key
+          content:
+            application/json:
+              example:
+                success: false
+                message: "Missing API Key"
+                response: []
 
-  /api-create-transactions:
+  /api-dotransac:
     post:
       tags:
         - Transaction
-      summary: Create a new transaction
+      summary: Create a transaction
       description: Initiates a new payment transaction and generates a QR code.
       security:
         - ApiKeyAuth: []
@@ -49,26 +55,28 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - reference_number
-                - name
-                - amount
-                - company
               properties:
                 reference_number:
                   type: string
+                  example: REF123456
                 name:
                   type: string
+                  example: Juan Dela Cruz
                 amount:
                   type: number
+                  example: 1500.75
                 company:
                   type: string
+                  example: LGU Manila
                 mobile_number:
                   type: string
+                  example: "09171234567"
                 email:
                   type: string
+                  example: juan.delacruz@example.com
                 convience_fee:
                   type: number
+                  example: 50.00
                 services:
                   type: array
                   items:
@@ -76,159 +84,150 @@ paths:
                     properties:
                       code:
                         type: string
+                        example: SVC001
                       description:
                         type: string
+                        example: Business Permit Fee
                       qty:
                         type: integer
+                        example: 1
                       amount:
                         type: number
-            example:
-              reference_number: REF123456
-              name: Juan Dela Cruz
-              amount: 1000
-              company: LGU-BPLS
-              mobile_number: 09171234567
-              email: juan@example.com
-              convience_fee: 20
-              services:
-                - code: SVC01
-                  description: Mayor's Permit
-                  qty: 1
-                  amount: 1000
+                        example: 1500
       responses:
-        '200':
-          description: Transaction created successfully
+        "200":
+          description: Transaction created
           content:
             application/json:
               example:
                 success: true
                 status_code: 200
                 response:
-                  redirect_url: http://lgu-payment-api.test/payment-form?ref=REF123456
-                  create_at: 2025-09-29 12:34:56
-                  txn_ref: TXN123456
-        '400':
-          description: Missing required fields or duplicate transaction
-        '401':
-          description: Missing or invalid API key
-        '502':
+                  redirect_url: "http://lgu-payment-api.test/payment-form?ref=REF123456"
+                  create_at: "2025-09-29 12:00:00"
+                  txn_ref: "TXN987654321"
+        "400":
+          description: Missing required fields or duplicate reference
+          content:
+            application/json:
+              example:
+                success: false
+                status_code: 400
+                response:
+                  message: "Transaction already exists"
+                  response: []
+        "401":
+          description: Missing or invalid API Key 
+          content:
+            application/json:
+              example:
+                success: false
+                message: "Missing API Key"
+                response: []          
+        "502":
           description: Failed to generate transaction from API
+          content:
+            application/json:
+              example:
+                success: false
+                status_code: 502
+                response:
+                  message: "Failed to generate transaction from API"
+                  response: []
 
   /api-dotransac_checkref:
     get:
       tags:
         - Transaction
-      summary: Check transaction by reference
-      description: Returns transaction details for a given reference ID.
+      summary: Check transaction by reference ID
+      description: Retrieves details of a transaction by `ref_id`.
       parameters:
         - in: query
           name: ref_id
+          required: true
           schema:
             type: string
-          required: true
-          description: Transaction reference ID
+          example: REF123456
       responses:
-        '200':
-          description: Transaction found
+        "200":
+          description: Transaction details found
           content:
             application/json:
               example:
                 success: true
                 ref_id: REF123456
                 name: Juan Dela Cruz
-                company: LGU-BPLS
-                mobile: 639171234567
-                email: juan@example.com
-                sub_total: 1000
-                conv_fee: 20
-                grand_total: 1020
-                deparment: BPLS
+                company: LGU Manila
+                mobile: "639171234567"
+                email: juan.delacruz@example.com
+                sub_total: 1500
+                conv_fee: 50
+                grand_total: 1550
+                department: BPLS
                 status: CREATED
-                qr_url: https://sample-qr.com/txn.png
+                qr_url: "https://sample-qr.png"
                 items:
-                  - code: SVC01
-                    description: Mayor's Permit
+                  - code: SVC001
+                    description: Business Permit Fee
                     qty: 1
-                    amount: 1000
+                    amount: 1500
                     other_fees: 0
-                    total: 1000
-        '400':
-          description: Missing ref_id
-        '404':
+                    total: 1500
+        "404":
           description: Transaction not found
-
-  /api-dotransac_postback:
-    post:
-      tags:
-        - Transaction
-      summary: Transaction postback callback
-      description: Receives payment gateway callback for transaction status update.
-      parameters:
-        - in: query
-          name: ref_id
-          schema:
-            type: string
-          required: true
-          description: Transaction reference ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                callback_status:
-                  type: string
-                callback_data:
-                  type: array
-                  items:
-                    type: object
-            example:
-              callback_status: PAID
-              callback_data:
-                - txn_id: TXN123456
-                  amount: 1000
-                  payment_date: "2025-09-29T12:45:00Z"
-      responses:
-        '200':
-          description: Callback processed successfully or duplicate
           content:
             application/json:
               example:
-                success: true
-                message: Callback processed successfully
-        '400':
-          description: Missing ref_id or invalid JSON
-        '404':
-          description: Transaction not found
-
+                success: false
+                message: "Transaction not found"
+                response: []
+        "400":
+          description: Missing ref_id
+          content:
+            application/json:
+              example:
+                success: false
+                message: "Missing ref_id"
+                response: []
   /api-dotransac_status:
     get:
       tags:
         - Transaction
       summary: Get transaction status
-      description: Returns the status of a transaction by reference ID.
+      description: Retrieves the current status of a transaction.
       parameters:
         - in: query
           name: ref_id
+          required: true
           schema:
             type: string
-          required: true
-          description: Transaction reference ID
+          example: REF123456
       responses:
-        '200':
-          description: Transaction status found
+        "200":
+          description: Transaction status retrieved
           content:
             application/json:
               example:
                 success: true
                 ref_id: REF123456
-                txn_ref: TXN123456
+                txn_ref: TXN987654321
                 status: PAID
-        '400':
-          description: Missing ref_id
-        '404':
+        "404":
           description: Transaction not found
+          content:
+            application/json:
+              example:
+                success: false
+                message: "Transaction not found"
+                response: []
+        "400":
+          description: Missing ref_id
+          content:
+            application/json:
+              example:
+                success: false
+                message: "Missing ref_id"
+                response: []
 
 components:
   securitySchemes:
