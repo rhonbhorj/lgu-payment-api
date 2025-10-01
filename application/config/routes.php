@@ -57,11 +57,10 @@ $route['default_controller'] = 'auth';
 $route['api-login'] = 'auth/authenticate';
 $route['api-logout'] = 'auth/logout';
 
+
 $route['api-insert-dept'] = 'auth/insert_department';
 $route['api-fetch-deparment'] = 'auth/get_departments';
-
 $route['api-register'] = 'auth/register';
-
 
 $route['api-create-transactions'] = 'transaction/dotransac';
 $route['api-categories'] = 'transaction/dogetcategories';
