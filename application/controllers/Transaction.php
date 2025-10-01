@@ -178,7 +178,7 @@ class Transaction extends CI_Controller
             "convience_fee"  => $conv_fee,
             "company"        => $company,
             "return_url"     => base_url('/success'),
-            "callback_url"   => base_url() . '/api-dotransac_postback?ref_id=' . $ref_id
+            "callback_url"   => base_url() . '/api-postback?ref_id=' . $ref_id
 
 
         ];

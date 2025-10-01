@@ -9,6 +9,10 @@ class Auth extends CI_Controller
 		$this->load->library('session');
 		$this->load->model('Auth_model');
 		header('Content-Type: application/json');
+
+		header("Access-Control-Allow-Origin: *");
+		header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
+		header("Access-Control-Allow-Headers: Content-Type, Content-Length, Accept-Encoding, X-Requested-With, Authorization, X-API-KEY");
 	}
 
 	/**
