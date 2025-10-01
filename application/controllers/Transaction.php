@@ -34,7 +34,6 @@ class Transaction extends CI_Controller
     {
         $api_key = $this->input->get_request_header('X-API-KEY');
 
-        // 🔴 Missing API Key → 401 Unauthorized
         if (empty($api_key)) {
             $response = [
                 'success' => false,
@@ -53,7 +52,6 @@ class Transaction extends CI_Controller
 
         $validKey = $this->Api->validate_api_key($api_key);
 
-        // 🔴 Invalid or inactive key → 400 Bad Request
         if (!$validKey) {
             $response = [
                 'success' => false,
@@ -192,19 +190,22 @@ class Transaction extends CI_Controller
         // === 9. Save Transaction (only if API returned valid data) ===
         if (!empty($apiData)) {
             $transaction = [
-                'trans_no'         => $apiData['reference_number'] ?? $data['reference'],
-                'trans_payor'      => $data['name'],
-                'trans_mobile'     => $mobile,
-                'trans_email'      => $email,
-                'trans_company'    => $data['company'],
-                'trans_sub_total'  => $data['amount'],
-                'trans_conv_fee'   => $data['convience_fee'],
-                'trans_refid'      => $data['refid'] ?? '',
-                'trans_txid'       => $apiData['txn_ref'] ?? '',
-                'trans_ref'        => $data['reference'] ?? '',
-                'trans_raw_string' => $apiData['raw_string'] ?? '',
-                'trans_status'     => 'CREATED'
+                'trans_no'          => $apiData['reference_number'] ?? $data['reference'],
+                'trans_payor'       => $data['name'],
+                'trans_mobile'      => $mobile,
+                'trans_email'       => $email,
+                'trans_company'     => $data['company'],
+                'trans_sub_total'   => $data['amount'],
+                'trans_conv_fee'    => $data['convience_fee'],
+                'trans_grand_total' => floatval($data['amount']) + floatval($data['convience_fee']), // ✅ sum
+                'trans_refid'       => $data['refid'] ?? '',
+                'trans_txid'        => $apiData['txn_ref'] ?? '',
+                'trans_ref'         => $data['reference'] ?? '',
+                'trans_raw_string'  => $apiData['raw_string'] ?? '',
+                'trans_date_created' => date('Y-m-d H:i:s'),
+                'trans_status'      => 'CREATED'
             ];
+
 
             $insert_id = $this->transaction->create_transaction($transaction);
         } else {
@@ -256,82 +257,9 @@ class Transaction extends CI_Controller
         exit;
     }
 
-    public function dotransac_checkref($ref_id = 0)
-    {
-        $ref_id = $this->input->get('ref_id', TRUE);
-
-        if (empty($ref_id)) {
-            return $this->output
-                ->set_status_header(400)
-                ->set_content_type('application/json')
-                ->set_output(json_encode([
-                    'success' => false,
-                    'message' => 'Missing ref_id'
-                ]));
-        }
-
-        // ✅ fetch transaction
-        $transactions = $this->transaction->get_by_refid($ref_id);
-
-        if (!$transactions) {
-            return $this->output
-                ->set_status_header(404)
-                ->set_content_type('application/json')
-                ->set_output(json_encode([
-                    'success' => false,
-                    'message' => 'Transaction not found'
-                ]));
-        }
-
-        // ✅ fetch raw items
-        $raw_items = $this->transaction->get_items_by_transno($ref_id);
-        $raw_items = is_array($raw_items) ? $raw_items : [];
-
-        // ✅ format items
-        $items = array_map(function ($item) {
-            return [
-                'code'        => $item['part_code'] ?? '',
-                'description' => $item['particulars'] ?? '',
-                'qty'         => isset($item['part_qty']) ? (int)$item['part_qty'] : 0,
-                'amount'      => isset($item['part_amount']) ? (float)$item['part_amount'] : 0,
-                'other_fees'  => isset($item['part_other_fees']) ? (float)$item['part_other_fees'] : 0,
-                'total'       => (
-                    ((float)($item['part_amount'] ?? 0) * (int)($item['part_qty'] ?? 0))
-                    + (float)($item['part_other_fees'] ?? 0)
-                ),
-            ];
-        }, $raw_items);
-
-        // ✅ compute totals
-        $sub_total   = array_sum(array_column($items, 'total'));
-        $conv_fee    = (float) $transactions->trans_conv_fee;
-        $grand_total = $sub_total + $conv_fee;
-
-        // ✅ build response
-        $response = [
-            'success'     => true,
-            'ref_id'      => $transactions->trans_refid,
-            'name'        => $transactions->trans_payor,
-            'company'     => $transactions->trans_company,
-            'mobile'      => $transactions->trans_mobile,
-            'email'       => $transactions->trans_email,
-            'sub_total'   => $sub_total,
-            'conv_fee'    => $conv_fee,
-            'grand_total' => $grand_total,
-            'deparment'   => 'BPLS',
-            'status'      => $transactions->trans_status,
-            'qr_url'      => $transactions->trans_raw_string,
-            'items'       => $items
-        ];
-
-        return $this->output
-            ->set_status_header(200)
-            ->set_content_type('application/json')
-            ->set_output(json_encode($response));
-    }
-
     public function dotransac_postback($ref_id = 0)
     {
+        // ✅ Get ref_id from GET or param
         $ref_id = $this->input->get('ref_id', TRUE)
             ?? $this->input->get('refid', TRUE)
             ?? $ref_id;
@@ -359,7 +287,7 @@ class Transaction extends CI_Controller
                 ]));
         }
 
-        // ✅ Parse incoming JSON
+        // ✅ Parse incoming JSON payload
         $raw_input = file_get_contents("php://input");
         $data = json_decode($raw_input, true);
 
@@ -373,18 +301,17 @@ class Transaction extends CI_Controller
                 ]));
         }
 
-        // ✅ Extract fields from raw JSON
+        // ✅ Extract fields
         $statusValue   = $data['status'] ?? $transaction->trans_status;
-        $statusLabel   = $this->status_get($statusValue);
+        $statusLabel   = $this->status_get($statusValue); // SUCCESS → PAID
         $txId          = $data['TxId'] ?? $transaction->trans_txid;
         $referenceNum  = $data['TxRef'] ?? $transaction->trans_ref;
 
-        // ✅ Encode whole callback for saving
+        // ✅ Encode full callback data
         $callbackJson = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        // ✅ Prevent duplicate inserts
-        $exists = $this->transaction->callback_exists($txId, $ref_id);
-        if ($exists) {
+        // ✅ Prevent duplicate callbacks
+        if ($this->transaction->callback_exists($txId, $ref_id)) {
             return $this->output
                 ->set_status_header(200)
                 ->set_content_type('application/json')
@@ -394,7 +321,7 @@ class Transaction extends CI_Controller
                 ], JSON_PRETTY_PRINT));
         }
 
-        // ✅ Insert callback
+        // ✅ Insert callback log
         $call_back_data = [
             'reference_number' => $ref_id,
             'callback_data'    => $callbackJson,
@@ -406,7 +333,17 @@ class Transaction extends CI_Controller
         $this->transaction->insert_callback($call_back_data);
 
         // ✅ Update transaction status
-        $this->transaction->update_status($transaction->trans_id, $statusLabel);
+        if ($statusLabel === 'PAID') {
+            // If paid → set settled date
+            $this->transaction->update_transaction($transaction->trans_id, [
+                'trans_status'       => $statusLabel,
+                'trans_settled_date' => date('Y-m-d H:i:s')
+            ]);
+        } else {
+            $this->transaction->update_transaction($transaction->trans_id, [
+                'trans_status' => $statusLabel
+            ]);
+        }
 
         // ✅ Success response
         return $this->output
@@ -415,9 +352,11 @@ class Transaction extends CI_Controller
             ->set_output(json_encode([
                 'success' => true,
                 'message' => 'Callback processed successfully',
-                'status'  => $statusLabel
+                'status'  => $statusLabel,
+                'settled_date' => ($statusLabel === 'PAID') ? date('Y-m-d H:i:s') : null
             ], JSON_PRETTY_PRINT));
     }
+
 
 
 

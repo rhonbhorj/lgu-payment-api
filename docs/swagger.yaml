@@ -12,7 +12,7 @@ tags:
     description: Endpoints for payment transactions
 
 paths:
-  /api-dogetcategories:
+  /api-categories:
     get:
       tags:
         - Transaction
@@ -41,7 +41,7 @@ paths:
                 message: "Missing API Key"
                 response: []
 
-  /api-dotransac:
+  /api-create-transactions:
     post:
       tags:
         - Transaction
@@ -135,7 +135,7 @@ paths:
                   message: "Failed to generate transaction from API"
                   response: []
 
-  /api-dotransac_checkref:
+  /api-checkref:
     get:
       tags:
         - Transaction
@@ -189,7 +189,7 @@ paths:
                 success: false
                 message: "Missing ref_id"
                 response: []
-  /api-dotransac_status:
+  /api-checkstatus:
     get:
       tags:
         - Transaction
