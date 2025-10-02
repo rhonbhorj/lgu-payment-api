@@ -200,7 +200,7 @@ class Transaction extends CI_Controller
                 'trans_refid'       => $data['refid'] ?? '',
                 'trans_txid'        => $apiData['txn_ref'] ?? '',
                 'trans_ref'         => $data['reference'] ?? '',
-                'trans_raw_string'  => json_encode($apiData), // store raw API response
+                'trans_raw_string'  => $apiData['raw_string'], // store raw API response
                 'trans_date_created' => date('Y-m-d H:i:s'),
                 'trans_status'      => 'CREATED'
             ];
@@ -247,9 +247,82 @@ class Transaction extends CI_Controller
                 'response' => [
                     'redirect_url' => $endpoint,
                     'create_at'    => date('Y-m-d H:i:s'),
-                    'txn_ref'      => $apiData['txn_ref'] ?? ''
-                ]
+                    'txn_ref'      => $apiData['txn_ref'] ?? ''                ]
             ]));
+    }
+
+    public function dotransac_checkref($ref_id = 0)
+    {
+        $ref_id = $this->input->get('ref_id', TRUE);
+
+        if (empty($ref_id)) {
+            return $this->output
+                ->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Missing ref_id'
+                ]));
+        }
+
+        // ✅ fetch transaction
+        $transactions = $this->transaction->get_by_refid($ref_id);
+
+        if (!$transactions) {
+            return $this->output
+                ->set_status_header(404)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'success' => false,
+                    'message' => 'Transaction not found'
+                ]));
+        }
+
+        // ✅ fetch raw items
+        $raw_items = $this->transaction->get_items_by_transno($ref_id);
+        $raw_items = is_array($raw_items) ? $raw_items : [];
+
+        // ✅ format items
+        $items = array_map(function ($item) {
+            return [
+                'code'        => $item['part_code'] ?? '',
+                'description' => $item['particulars'] ?? '',
+                'qty'         => isset($item['part_qty']) ? (int)$item['part_qty'] : 0,
+                'amount'      => isset($item['part_amount']) ? (float)$item['part_amount'] : 0,
+                'other_fees'  => isset($item['part_other_fees']) ? (float)$item['part_other_fees'] : 0,
+                'total'       => (
+                    ((float)($item['part_amount'] ?? 0) * (int)($item['part_qty'] ?? 0))
+                    + (float)($item['part_other_fees'] ?? 0)
+                ),
+            ];
+        }, $raw_items);
+
+        // ✅ compute totals
+        $sub_total   = array_sum(array_column($items, 'total'));
+        $conv_fee    = (float) $transactions->trans_conv_fee;
+        $grand_total = $sub_total + $conv_fee;
+
+        // ✅ build response
+        $response = [
+            'success'     => true,
+            'ref_id'      => $transactions->trans_refid,
+            'name'        => $transactions->trans_payor,
+            'company'     => $transactions->trans_company,
+            'mobile'      => $transactions->trans_mobile,
+            'email'       => $transactions->trans_email,
+            'sub_total'   => $sub_total,
+            'conv_fee'    => $conv_fee,
+            'grand_total' => $grand_total,
+            'deparment'   => 'BPLS',
+            'status'      => $transactions->trans_status,
+            'qr_url'      => $transactions->trans_raw_string,
+            'items'       => $items
+        ];
+
+        return $this->output
+            ->set_status_header(200)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($response));
     }
 
     public function dotransac_postback($ref_id = 0)
