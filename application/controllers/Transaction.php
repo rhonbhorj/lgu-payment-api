@@ -100,41 +100,37 @@ class Transaction extends CI_Controller
         $raw_input = json_decode($this->input->raw_input_stream, true);
 
         $ref_id   = trim($raw_input['reference_number'] ?? $this->input->post('reference_number', TRUE));
-        $name    = trim($raw_input['name'] ?? $this->input->post('name', TRUE));
-        $amount  = trim($raw_input['amount'] ?? $this->input->post('amount', TRUE));
-        $company = trim($raw_input['company'] ?? $this->input->post('company', TRUE));
-        $mobile  = trim($raw_input['mobile_number'] ?? $this->input->post('mobile_number', TRUE));
-        $email   = trim($raw_input['email'] ?? $this->input->post('email', TRUE));
+        $name     = trim($raw_input['name'] ?? $this->input->post('name', TRUE));
+        $amount   = trim($raw_input['amount'] ?? $this->input->post('amount', TRUE));
+        $company  = trim($raw_input['company'] ?? $this->input->post('company', TRUE));
+        $mobile   = trim($raw_input['mobile_number'] ?? $this->input->post('mobile_number', TRUE));
+        $email    = trim($raw_input['email'] ?? $this->input->post('email', TRUE));
         $conv_fee = trim($raw_input['convience_fee'] ?? $this->input->post('convience_fee', TRUE));
-        $raw_input = json_decode($this->input->raw_input_stream, true); // supports JSON requests
-        $services  = $raw_input['services'] ?? [];
+        $services = $raw_input['services'] ?? [];
+
         // === 3. Validate Reference ID ===
         $existing = $this->transaction->check_refid_exists($ref_id);
         if ($existing) {
-            $this->output
-                ->set_status_header(400) // Bad Request
+            return $this->output
+                ->set_status_header(400)
                 ->set_content_type('application/json')
                 ->set_output(json_encode([
                     'success' => false,
                     'message' => 'Transaction already exists',
                     'response' => []
-                ]))
-                ->_display();
-            exit;
+                ]));
         }
 
         // === 4. Required fields check ===
         if (empty($name) || empty($amount) || empty($company)) {
-            $this->output
-                ->set_status_header(400) // Bad Request
+            return $this->output
+                ->set_status_header(400)
                 ->set_content_type('application/json')
                 ->set_output(json_encode([
                     'success' => false,
                     'message' => 'Missing required fields',
                     'response' => []
-                ]))
-                ->_display();
-            exit;
+                ]));
         }
 
         // === 5. Normalize Mobile ===
@@ -151,23 +147,18 @@ class Transaction extends CI_Controller
             $email = "devs@netglobalsolutions.net"; // fallback
         }
 
-        // === 7. Prepare Data for API ===
-
-        $raw_input = json_decode($this->input->raw_input_stream, true);
-        $services  = $raw_input['services'] ?? [];
-
+        // === 7. Save Services ===
         if (!empty($services)) {
-            // Check if first element is an array → multiple services
             if (is_array($services[0])) {
                 foreach ($services as $srv) {
                     $this->transaction->insert_service($ref_id, $srv);
                 }
             } else {
-                // Single service
                 $this->transaction->insert_service($ref_id, $services);
             }
         }
 
+        // === 8. Prepare Data for API ===
         $data = [
             "reference"      => $this->generateReference(16),
             "refid"          => $ref_id,
@@ -179,15 +170,23 @@ class Transaction extends CI_Controller
             "company"        => $company,
             "return_url"     => base_url('/success'),
             "callback_url"   => base_url() . '/api-postback?ref_id=' . $ref_id
-
-
         ];
 
-        // === 8. Call API Service ===
+        // === 9. Call API Service ===
         $result = $this->apiservice->generate_qr_api($data);
-        $apiData = $result['data'] ?? [];
 
-        // === 9. Save Transaction (only if API returned valid data) ===
+        // 🔍 Debugging - log the raw API response
+        log_message('error', 'API Service Response: ' . print_r($result, true));
+
+        // Decode JSON if it’s a string
+        if (is_string($result)) {
+            $result = json_decode($result, true);
+        }
+
+        // Safely extract response data
+        $apiData = $result['data'] ?? $result ?? [];
+
+        // === 10. Save Transaction ===
         if (!empty($apiData)) {
             $transaction = [
                 'trans_no'          => $apiData['reference_number'] ?? $data['reference'],
@@ -197,31 +196,29 @@ class Transaction extends CI_Controller
                 'trans_company'     => $data['company'],
                 'trans_sub_total'   => $data['amount'],
                 'trans_conv_fee'    => $data['convience_fee'],
-                'trans_grand_total' => floatval($data['amount']) + floatval($data['convience_fee']), // ✅ sum
+                'trans_grand_total' => floatval($data['amount']) + floatval($data['convience_fee']),
                 'trans_refid'       => $data['refid'] ?? '',
                 'trans_txid'        => $apiData['txn_ref'] ?? '',
                 'trans_ref'         => $data['reference'] ?? '',
-                'trans_raw_string'  => $apiData['raw_string'] ?? '',
+                'trans_raw_string'  => json_encode($apiData), // store raw API response
                 'trans_date_created' => date('Y-m-d H:i:s'),
                 'trans_status'      => 'CREATED'
             ];
 
-
             $insert_id = $this->transaction->create_transaction($transaction);
         } else {
-            $this->output
-                ->set_status_header(502) // Bad Gateway
+            return $this->output
+                ->set_status_header(502)
                 ->set_content_type('application/json')
                 ->set_output(json_encode([
                     'success' => false,
                     'message' => 'Failed to generate transaction from API',
+                    'raw_response' => $result, // 👈 include raw response for debugging
                     'response' => []
-                ]))
-                ->_display();
-            exit;
+                ]));
         }
 
-        // === 10. Log API Request/Response ===
+        // === 11. Log API Request/Response ===
         $request_method = $this->input->method(TRUE);
         $request_params = !empty($raw_input) ? $raw_input : ($request_method === 'POST'
             ? $this->input->post(NULL, TRUE)
@@ -238,10 +235,10 @@ class Transaction extends CI_Controller
         ];
         $this->Api->insert_log($log_data);
 
-        // === 11. Final Response ===
+        // === 12. Final Response ===
         $endpoint = rtrim(api_url(), '/') . '/payment-form' . '?ref=' . $ref_id;
 
-        $this->output
+        return $this->output
             ->set_status_header(200)
             ->set_content_type('application/json')
             ->set_output(json_encode([
@@ -252,9 +249,7 @@ class Transaction extends CI_Controller
                     'create_at'    => date('Y-m-d H:i:s'),
                     'txn_ref'      => $apiData['txn_ref'] ?? ''
                 ]
-            ]))
-            ->_display();
-        exit;
+            ]));
     }
 
     public function dotransac_postback($ref_id = 0)
