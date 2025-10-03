@@ -131,6 +131,12 @@ class Trans_Model extends CI_Model
             ->update('tbl_transactions', ['trans_status' => $status_label]);
     }
 
+    public function update_transaction($trans_id, $data)
+    {
+        return $this->db->where('trans_id', $trans_id)
+            ->update('tbl_transactions', $data);
+    }
+
     public function callback_exists($txid, $ref_id)
     {
         $this->db->where('txid', $txid);
