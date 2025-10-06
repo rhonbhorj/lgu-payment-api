@@ -1,0 +1,352 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "LGU Payment API",
+    "description": "API documentation for LGU Payment System Transaction Controller",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.lgu-payment-uat.netglobalsolutions.net/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Transaction",
+      "description": "Endpoints for payment transactions"
+    }
+  ],
+  "paths": {
+    "/api-categories": {
+      "get": {
+        "tags": [
+          "Transaction"
+        ],
+        "summary": "Get all categories",
+        "description": "Returns the list of available categories.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": [
+                    {
+                      "cat_code": "BPLS",
+                      "cat_category": "Business Permit"
+                    },
+                    {
+                      "cat_code": "RPT",
+                      "cat_category": "Real Property Tax"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API Key",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Missing API Key",
+                  "response": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api-create-transactions": {
+      "post": {
+        "tags": [
+          "Transaction"
+        ],
+        "summary": "Create a transaction",
+        "description": "Initiates a new payment transaction and generates a QR code.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reference_number": {
+                    "type": "string",
+                    "example": "REF123456"
+                  },
+                  "name": {
+                    "type": "string",
+                    "example": "Juan Dela Cruz"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "example": 1500.75
+                  },
+                  "company": {
+                    "type": "string",
+                    "example": "LGU Manila"
+                  },
+                  "mobile_number": {
+                    "type": "string",
+                    "example": "09171234567"
+                  },
+                  "email": {
+                    "type": "string",
+                    "example": "juan.delacruz@example.com"
+                  },
+                  "convience_fee": {
+                    "type": "number",
+                    "example": 50.0
+                  },
+                  "services": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "example": "SVC001"
+                        },
+                        "description": {
+                          "type": "string",
+                          "example": "Business Permit Fee"
+                        },
+                        "qty": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "amount": {
+                          "type": "number",
+                          "example": 1500
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction created",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "status_code": 200,
+                  "response": {
+                    "redirect_url": "http://lgu-payment-api.test/payment-form?ref=REF123456",
+                    "create_at": "2025-09-29 12:00:00",
+                    "txn_ref": "TXN987654321"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required fields or duplicate reference",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "status_code": 400,
+                  "response": {
+                    "message": "Transaction already exists",
+                    "response": []
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API Key",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Missing API Key",
+                  "response": []
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to generate transaction from API",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "status_code": 502,
+                  "response": {
+                    "message": "Failed to generate transaction from API",
+                    "response": []
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api-checkref": {
+      "get": {
+        "tags": [
+          "Transaction"
+        ],
+        "summary": "Check transaction by reference ID",
+        "description": "Retrieves details of a transaction by `ref_id`.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ref_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "REF123456"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction details found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "ref_id": "REF123456",
+                  "name": "Juan Dela Cruz",
+                  "company": "LGU Manila",
+                  "mobile": "639171234567",
+                  "email": "juan.delacruz@example.com",
+                  "sub_total": 1500,
+                  "conv_fee": 50,
+                  "grand_total": 1550,
+                  "department": "BPLS",
+                  "status": "CREATED",
+                  "qr_url": "https://sample-qr.png",
+                  "items": [
+                    {
+                      "code": "SVC001",
+                      "description": "Business Permit Fee",
+                      "qty": 1,
+                      "amount": 1500,
+                      "other_fees": 0,
+                      "total": 1500
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Transaction not found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Transaction not found",
+                  "response": []
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing ref_id",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Missing ref_id",
+                  "response": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api-checkstatus": {
+      "get": {
+        "tags": [
+          "Transaction"
+        ],
+        "summary": "Get transaction status",
+        "description": "Retrieves the current status of a transaction.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ref_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "REF123456"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction status retrieved",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "ref_id": "REF123456",
+                  "txn_ref": "TXN987654321",
+                  "status": "PAID"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Transaction not found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Transaction not found",
+                  "response": []
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing ref_id",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Missing ref_id",
+                  "response": []
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-KEY"
+      }
+    }
+  }
+}
