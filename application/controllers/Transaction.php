@@ -246,8 +246,10 @@ class Transaction extends CI_Controller
                 'status_code' => isset($result['status_code']) ? $result['status_code'] : null,
                 'response' => [
                     'redirect_url' => $endpoint,
+                    'raw_string' => $apiData['raw_string'],
                     'create_at'    => date('Y-m-d H:i:s'),
-                    'txn_ref'      => $apiData['txn_ref'] ?? ''                ]
+                    'txn_ref'      => $apiData['txn_ref'] ?? ''
+                ]
             ]));
     }
 
@@ -308,8 +310,8 @@ class Transaction extends CI_Controller
             'ref_id'      => $transactions->trans_refid,
             'name'        => $transactions->trans_payor,
             'company'     => $transactions->trans_company,
-            'mobile'      => $transactions->trans_mobile,
-            'email'       => $transactions->trans_email,
+            'mobile'      => substr($transactions->trans_mobile, 0, 4) . '****' . substr($transactions->trans_mobile, -2),
+            'email'       => preg_replace('/(.).+(@.+)/', '$1****$2', $transactions->trans_email),
             'sub_total'   => $sub_total,
             'conv_fee'    => $conv_fee,
             'grand_total' => $grand_total,
@@ -318,6 +320,7 @@ class Transaction extends CI_Controller
             'qr_url'      => $transactions->trans_raw_string,
             'items'       => $items
         ];
+
 
         return $this->output
             ->set_status_header(200)
