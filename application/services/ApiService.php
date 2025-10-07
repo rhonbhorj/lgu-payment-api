@@ -228,4 +228,43 @@ class ApiService
             'data' => $decoded['data'] ?? $decoded
         ];
     }
+
+    public function check_status_api($v)
+    {
+        $token = $this->generate_token();
+
+        $endpoint = rtrim($this->endpoint_base_url, '/') . '/transaction-status';
+
+        $curl = curl_init();
+
+        curl_setopt_array($curl, [
+            CURLOPT_URL => $endpoint,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'POST',
+            CURLOPT_POSTFIELDS => json_encode($v),
+            CURLOPT_HTTPHEADER => array(
+                "X-API-KEY: {$this->x_api_key}",
+                "X-API-USERNAME: {$this->x_api_username}",
+                "X-API-PASSWORD: {$this->x_api_password}",
+                'Content-Type: application/json',
+               'Authorization: Bearer ' . $token['response']['data']['token'],
+
+            ),
+        ]);
+
+        $response = curl_exec($curl);
+        curl_close($curl);
+
+        $decoded = json_decode($response, true);
+
+        return [
+            'success'  => is_array($decoded),
+            'response' => $decoded
+        ];
+    }
 }

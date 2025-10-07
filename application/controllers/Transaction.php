@@ -20,14 +20,19 @@ class Transaction extends CI_Controller
         header("Access-Control-Allow-Headers: Content-Type, Content-Length, Accept-Encoding, X-Requested-With, Authorization, X-API-KEY");
     }
 
-
-    private function generateReference($length = 16)
+    private function generateReference($length = 6)
     {
-        return strtoupper(substr(str_shuffle(str_repeat(
-            '0123456789ABCDEFGHIJKLMNOPQRSTUVWXFYZabcdefghijklmnopqrstuvwxyz',
-            $length
-        )), 0, $length));
+        // Generate timestamp part: YYHHMMSS (e.g., 251007134512)
+        $timestamp = date('yHis'); // year (2-digit), hour, minute, second
+
+        // Generate random part
+        $characters = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+        $randomPart = substr(str_shuffle(str_repeat($characters, $length)), 0, $length);
+
+        // Combine timestamp + random
+        return strtoupper($timestamp . $randomPart);
     }
+
 
 
     private function validate_api_key()
@@ -160,7 +165,7 @@ class Transaction extends CI_Controller
 
         // === 8. Prepare Data for API ===
         $data = [
-            "reference"      => $this->generateReference(16),
+            "reference"      => 'REF-' . $this->generateReference(16),
             "refid"          => $ref_id,
             "name"           => $name,
             "amount"         => $amount,
@@ -189,7 +194,7 @@ class Transaction extends CI_Controller
         // === 10. Save Transaction ===
         if (!empty($apiData)) {
             $transaction = [
-                'trans_no'          => $apiData['reference_number'] ?? $data['reference'],
+                'trans_no'          => $apiData['reference_number'],
                 'trans_payor'       => $data['name'],
                 'trans_mobile'      => $mobile,
                 'trans_email'       => $email,
@@ -213,7 +218,7 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'success' => false,
                     'message' => 'Failed to generate transaction from API',
-                    'raw_response' => $result, // 👈 include raw response for debugging
+                    'raw_response' => $result,
                     'response' => []
                 ]));
         }
@@ -248,7 +253,8 @@ class Transaction extends CI_Controller
                     'redirect_url' => $endpoint,
                     'raw_string' => $apiData['raw_string'],
                     'create_at'    => date('Y-m-d H:i:s'),
-                    'txn_ref'      => $apiData['txn_ref'] ?? ''
+                    'reference_number'      => $data['refid'] ?? '',
+                    'api_reference_no' => $data['reference']
                 ]
             ]));
     }
@@ -416,13 +422,12 @@ class Transaction extends CI_Controller
             ]);
         }
 
-        // ✅ Success response
+
         return $this->output
             ->set_status_header(200)
             ->set_content_type('application/json')
             ->set_output(json_encode([
                 'success' => true,
-                'message' => 'Callback processed successfully',
                 'status'  => $statusLabel,
                 'settled_date' => ($statusLabel === 'PAID') ? date('Y-m-d H:i:s') : null
             ], JSON_PRETTY_PRINT));
@@ -448,10 +453,9 @@ class Transaction extends CI_Controller
     }
 
 
-    public function dotransac_status($ref_id = 0)
+    public function dotransac_status()
     {
-        $ref_id = $this->input->get('ref_id', TRUE) ?? $ref_id;
-
+        $ref_id = $this->input->get('ref_id', TRUE);
 
         if (empty($ref_id)) {
             return $this->output
@@ -459,11 +463,15 @@ class Transaction extends CI_Controller
                 ->set_content_type('application/json')
                 ->set_output(json_encode([
                     'success' => false,
+                    'status_code' => 400,
                     'message' => 'Missing ref_id'
                 ], JSON_PRETTY_PRINT));
         }
 
-        // ✅ Fetch transaction
+        $result = $this->apiservice->check_status_api([
+            'reference_number' => $ref_id
+        ]);
+
         $transaction = $this->transaction->get_by_refid($ref_id);
 
         if (!$transaction) {
@@ -472,12 +480,21 @@ class Transaction extends CI_Controller
                 ->set_content_type('application/json')
                 ->set_output(json_encode([
                     'success' => false,
+                    'status_code' => 404,
                     'message' => 'Transaction not found'
                 ], JSON_PRETTY_PRINT));
         }
 
-        // ✅ Normalize status
         $status = $this->status_get($transaction->trans_status);
+        if ($status === 'PAID') {
+            $statusCode = 200;
+        } elseif ($status === 'PENDING') {
+            $statusCode = 202;
+        } elseif (in_array($status, ['FAILED', 'CANCELLED', 'DECLINED'])) {
+            $statusCode = 400;
+        } else {
+            $statusCode = 200;
+        }
 
         // ✅ Choose best timestamp available
         $updatedAt = $transaction->updated_at
@@ -487,14 +504,20 @@ class Transaction extends CI_Controller
 
         // ✅ Build response
         $response = [
-            'success'    => true,
-            'ref_id'     => $transaction->trans_refid,
-            'txn_ref'    => $transaction->trans_txid,
-            'status'     => $status
+            'success'      => true,
+            'status_code'  => $statusCode,
+            'data'         => [
+                'reference_number'      => $transaction->trans_no,
+                'ref_id'       => $transaction->trans_refid,
+                'status'       => $status,
+                'settled_date' => ($status === 'PAID') ? $transaction->trans_settled_date : null,
+                'payment' => $result['response']['payment_channel'] ?? "",
+                'transaction_id' => $result['response']['transaction_id'] ?? "",
+            ]
         ];
 
         return $this->output
-            ->set_status_header(200)
+            ->set_status_header($statusCode)
             ->set_content_type('application/json')
             ->set_output(json_encode($response, JSON_PRETTY_PRINT));
     }
