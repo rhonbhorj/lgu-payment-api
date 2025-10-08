@@ -9,15 +9,19 @@ class Report_model extends CI_Model
         date_default_timezone_set('Asia/Manila');
     }
 
-    /**
-     * Transactions today
-     */
     public function all_transaction_today()
     {
         $start = date('Y-m-d 00:00:00');
         $end   = date('Y-m-d 23:59:59');
 
-        return $this->get_transactions_between($start, $end, true);
+        $row = $this->get_transactions_between($start, $end);
+
+        return [
+            "grand_total"        => $row ? (float) $row->grand_total : 0,
+            "sub_total"          => $row ? (float) $row->sub_total : 0,
+            "conv_fee"           => $row ? (float) $row->conv_fee : 0,
+            "grand_total_count"  => $row ? (int) $row->grand_total_count : 0
+        ];
     }
 
     /**
@@ -28,8 +32,16 @@ class Report_model extends CI_Model
         $start = date('Y-m-d 00:00:00', strtotime('-1 day'));
         $end   = date('Y-m-d 23:59:59', strtotime('-1 day'));
 
-        return $this->get_transactions_between($start, $end, true);
+        $row = $this->get_transactions_between($start, $end);
+
+        return [
+            "grand_total"        => $row ? (float) $row->grand_total : 0,
+            "sub_total"          => $row ? (float) $row->sub_total : 0,
+            "conv_fee"           => $row ? (float) $row->conv_fee : 0,
+            "grand_total_count"  => $row ? (int) $row->grand_total_count : 0
+        ];
     }
+
 
     /**
      * All data (no date filter)
@@ -98,16 +110,23 @@ class Report_model extends CI_Model
     /**
      * Fetch transaction data between 2 dates
      */
-    private function get_transactions_between($start, $end, $returnArray = false)
+    private function get_transactions_between($start, $end)
     {
-        $this->db->from("tbl_transactions");
-        $this->db->where("trans_status", "PAID");
-        $this->db->where("trans_settled_date >=", $start);
-        $this->db->where("trans_settled_date <=", $end);
+        $this->db->select([
+            'SUM(trans_grand_total) AS grand_total',
+            'SUM(trans_sub_total) AS sub_total',
+            'SUM(trans_conv_fee) AS conv_fee',
+            'COUNT(trans_id) AS grand_total_count'
+        ]);
+        $this->db->from('tbl_transactions');
+        $this->db->where('trans_status', 'PAID');
+        $this->db->where('trans_settled_date >=', $start);
+        $this->db->where('trans_settled_date <=', $end);
 
         $query = $this->db->get();
-        return $returnArray ? $query->result_array() : $query->num_rows();
+        return $query->row();
     }
+
 
     /**
      * Helper - Empty response

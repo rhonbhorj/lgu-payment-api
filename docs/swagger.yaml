@@ -53,59 +53,29 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                reference_number:
-                  type: string
-                  example: REF123456
-                name:
-                  type: string
-                  example: Juan Dela Cruz
-                amount:
-                  type: number
-                  example: 1500.75
-                company:
-                  type: string
-                  example: LGU Manila
-                mobile_number:
-                  type: string
-                  example: "09171234567"
-                email:
-                  type: string
-                  example: juan.delacruz@example.com
-                convience_fee:
-                  type: number
-                  example: 50.00
-                services:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        example: SVC001
-                      description:
-                        type: string
-                        example: Business Permit Fee
-                      qty:
-                        type: integer
-                        example: 1
-                      amount:
-                        type: number
-                        example: 1500
+            example:
+              reference_number: "REF-1234567890"
+              name: "RON"
+              amount: "100"
+              mobile_number: "09771741876"
+              email: "devs@netglobalsolutions.net"
+              convience_fee: "25.000"
+              company: "NGSI"
+              services: ["BP0029", "10", "123.00", "100.00"]
       responses:
-        "200":
-          description: Transaction created
+        "201":
+          description: Transaction created successfully
           content:
             application/json:
               example:
                 success: true
-                status_code: 200
+                status_code: 201
                 response:
-                  redirect_url: "http://lgu-payment-api.test/payment-form?ref=REF123456"
-                  create_at: "2025-09-29 12:00:00"
-                  txn_ref: "TXN987654321"
+                  redirect_url: "https://lgu-payment-uat.netglobalsolutions.net/payment-form?ref=REF-1234567890"
+                  raw_string: "00020101021228760011ph.ppmi.p2m0111OPDVPHM1XXX03157771480000000840416529481372565265105030015204601653036085406100.005802PH5909Netglobal6015City Of Mandalu62430010ph.allbank0525292025REF-250211449EHKXPM88310012ph.ppmi.qrph0111OPDVPHM1XXX63049FEC"
+                  create_at: "2025-10-08 02:11:44"
+                  reference_number: "REF-1234567890"
+                  ref_id: "REF-250211449EHKXPMI7UOYH0XT"
         "400":
           description: Missing required fields or duplicate reference
           content:
@@ -189,6 +159,7 @@ paths:
                 success: false
                 message: "Missing ref_id"
                 response: []
+
   /api-checkstatus:
     get:
       tags:
@@ -209,9 +180,17 @@ paths:
             application/json:
               example:
                 success: true
-                ref_id: REF123456
-                txn_ref: TXN987654321
-                status: PAID
+                status_code: 200
+                data:
+                  status: "PAID"
+                  reference_number: "REF-1234567890"
+                  ref_id: "REF-250211449EHKXPMI7UOYH0XT"
+                  fee: "25.000"
+                  amount: "100.000"
+                  total_amount: "125.000"
+                  settled_date: "2025-10-08 02:12:24"
+                  payment-reference: ""
+                  transaction_id: ""
         "404":
           description: Transaction not found
           content:

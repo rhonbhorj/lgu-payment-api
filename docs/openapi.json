@@ -280,65 +280,74 @@
         }
       }
     },
-    "/api-checkstatus": {
-      "get": {
-        "tags": [
-          "Transaction"
-        ],
-        "summary": "Get transaction status",
-        "description": "Retrieves the current status of a transaction.",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "ref_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "example": "REF123456"
+ "/api-checkstatus": {
+  "get": {
+    "tags": [
+      "Transaction"
+    ],
+    "summary": "Get transaction status",
+    "description": "Retrieves the current status of a transaction.",
+    "parameters": [
+      {
+        "in": "query",
+        "name": "ref_id",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "example": "REF123456"
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Transaction status retrieved",
+        "content": {
+          "application/json": {
+            "example": {
+              "success": true,
+              "status_code": 200,
+              "data": {
+                "status": "PAID",
+                "reference_number": "REF-1234567890",
+                "ref_id": "REF-250211449EHKXPMI7UOYH0XT",
+                "fee": "25.000",
+                "amount": "100.000",
+                "total_amount": "125.000",
+                "settled_date": "2025-10-08 02:12:24",
+                "payment-reference": "",
+                "transaction_id": ""
+              }
+            }
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "Transaction status retrieved",
-            "content": {
-              "application/json": {
-                "example": {
-                  "success": true,
-                  "ref_id": "REF123456",
-                  "txn_ref": "TXN987654321",
-                  "status": "PAID"
-                }
-              }
+        }
+      },
+      "404": {
+        "description": "Transaction not found",
+        "content": {
+          "application/json": {
+            "example": {
+              "success": false,
+              "message": "Transaction not found",
+              "response": []
             }
-          },
-          "404": {
-            "description": "Transaction not found",
-            "content": {
-              "application/json": {
-                "example": {
-                  "success": false,
-                  "message": "Transaction not found",
-                  "response": []
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing ref_id",
-            "content": {
-              "application/json": {
-                "example": {
-                  "success": false,
-                  "message": "Missing ref_id",
-                  "response": []
-                }
-              }
+          }
+        }
+      },
+      "400": {
+        "description": "Missing ref_id",
+        "content": {
+          "application/json": {
+            "example": {
+              "success": false,
+              "message": "Missing ref_id",
+              "response": []
             }
           }
         }
       }
     }
+  }
+}
   },
   "components": {
     "securitySchemes": {
