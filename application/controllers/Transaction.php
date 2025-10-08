@@ -138,6 +138,20 @@ class Transaction extends CI_Controller
                 ]));
         }
 
+        // === 4.1 Validate Mobile Number ===
+        if (!empty($mobile)) {
+            if (!preg_match('/^09\d{9}$/', $mobile)) {
+                return $this->output
+                    ->set_status_header(400)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode([
+                        'success' => false,
+                        'message' => 'Mobile number is not valid. It must be 11 digits starting with 09.',
+                        'response' => []
+                    ]));
+            }
+        }
+
         // === 5. Normalize Mobile ===
         if (!empty($mobile)) {
             if (preg_match('/^09\d{9}$/', $mobile)) {
@@ -253,11 +267,12 @@ class Transaction extends CI_Controller
                     'redirect_url' => $endpoint,
                     'raw_string' => $apiData['raw_string'],
                     'create_at'    => date('Y-m-d H:i:s'),
-                    'reference_number'      => $data['refid'] ?? '',
+                    'reference_number' => $data['refid'] ?? '',
                     'ref_id' => $data['reference']
                 ]
             ]));
     }
+
 
     public function dotransac_checkref($ref_id = 0)
     {
@@ -512,7 +527,7 @@ class Transaction extends CI_Controller
                 'ref_id'       => $transaction->trans_no,
                 'fee'       => $transaction->trans_conv_fee,
                 'amount'       => $transaction->trans_sub_total,
-                'total_amount' =>$transaction->trans_grand_total,
+                'total_amount' => $transaction->trans_grand_total,
                 'settled_date' => ($status === 'PAID') ? $transaction->trans_settled_date : "",
                 'payment-reference' => $result['response']['payment_channel'] ?? "",
                 'transaction_id' => $result['response']['transaction_id'] ?? "",
