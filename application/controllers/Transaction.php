@@ -254,7 +254,7 @@ class Transaction extends CI_Controller
                     'raw_string' => $apiData['raw_string'],
                     'create_at'    => date('Y-m-d H:i:s'),
                     'reference_number'      => $data['refid'] ?? '',
-                    'api_reference_no' => $data['reference']
+                    'ref_id' => $data['reference']
                 ]
             ]));
     }
@@ -507,13 +507,14 @@ class Transaction extends CI_Controller
             'success'      => true,
             'status_code'  => $statusCode,
             'data'         => [
-                'reference_number'      => $transaction->trans_no,
-                'ref_id'       => $transaction->trans_refid,
                 'status'       => $status,
+                'reference_number'      => $transaction->trans_refid,
+                'ref_id'       => $transaction->trans_no,
                 'fee'       => $transaction->trans_conv_fee,
-                'amount'       => $transaction->trans_grand_total,
-                'settled_date' => ($status === 'PAID') ? $transaction->trans_settled_date : null,
-                'payment' => $result['response']['payment_channel'] ?? "",
+                'amount'       => $transaction->trans_sub_total,
+                'total_amount' =>$transaction->trans_grand_total,
+                'settled_date' => ($status === 'PAID') ? $transaction->trans_settled_date : "",
+                'payment-reference' => $result['response']['payment_channel'] ?? "",
                 'transaction_id' => $result['response']['transaction_id'] ?? "",
             ]
         ];
