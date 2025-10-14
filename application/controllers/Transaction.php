@@ -529,6 +529,7 @@ class Transaction extends CI_Controller
                 'amount'       => $transaction->trans_sub_total,
                 'total_amount' => $transaction->trans_grand_total,
                 'settled_date' => ($status === 'PAID') ? $transaction->trans_settled_date : "",
+                'payment' => "",
                 'payment-reference' => $result['response']['payment_channel'] ?? "",
                 'transaction_id' => $result['response']['transaction_id'] ?? "",
             ]
