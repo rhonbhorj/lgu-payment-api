@@ -68,6 +68,8 @@ $route['api-checkref'] = 'transaction/dotransac_checkref';
 $route['api-postback'] = 'transaction/dotransac_postback';
 $route['api-checkstatus'] = 'transaction/dotransac_status';
 
+$route['api-get-transactions'] = 'transaction/doget_transactions';
+
 
 $route['api-transaction-all']                = 'dashboard/index';
 $route['api-transactions-today']          = 'dashboard/all_transaction_today';

@@ -145,4 +145,46 @@ class Trans_Model extends CI_Model
 
         return $query->num_rows() > 0;
     }
+
+    public function get_transactions_with_particulars($start_date, $end_date = null)
+    {
+        $this->db->select('
+            t.trans_id,
+            t.trans_no,
+            t.trans_refid,
+            t.trans_payor,
+            t.trans_mobile,
+            t.trans_email,
+            t.trans_company,
+            t.trans_sub_total,
+            t.trans_conv_fee,
+            t.trans_grand_total,
+            t.trans_txid,
+            t.trans_ref,
+            t.trans_date_created,
+            t.trans_settled_date,
+            t.trans_status,
+            p.part_id,
+            p.part_code,
+            p.part_transno,
+            p.part_particulars,
+            p.part_qty,
+            p.part_amount,
+            p.part_other_fees
+        ');
+        $this->db->from('tbl_transactions t');
+        $this->db->join('tbl_transaction_particulars p', 't.trans_refid = p.part_transno', 'left');
+
+        if ($end_date === null) {
+            $this->db->where('DATE(t.trans_date_created)', $start_date);
+        } else {
+            $this->db->where('t.trans_date_created >=', $start_date);
+            $this->db->where('t.trans_date_created <=', $end_date);
+        }
+
+        $this->db->order_by('t.trans_date_created', 'DESC');
+        $query = $this->db->get();
+
+        return $query->result_array();
+    }
 }

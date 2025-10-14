@@ -73,19 +73,11 @@ class Transaction extends CI_Controller
         return true;
     }
 
-
-
-
     public function dogetcategories()
     {
         try {
-            // Validate API key first (will exit if missing/invalid)
             $this->validate_api_key();
-
-            // Fetch categories
             $categories = $this->transaction->get_all_categories();
-
-            // Map/filter results
             $filtered = array_map(function ($row) {
                 return [
                     'cat_code'     => $row['cat_code'],
@@ -93,7 +85,6 @@ class Transaction extends CI_Controller
                 ];
             }, $categories);
 
-            // Return success
             return $this->output
                 ->set_status_header(200)
                 ->set_content_type('application/json', 'utf-8')
@@ -103,7 +94,6 @@ class Transaction extends CI_Controller
                     'response' => $filtered,
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         } catch (Throwable $e) {
-            // Return structured error
             return $this->output
                 ->set_status_header(500)
                 ->set_content_type('application/json', 'utf-8')
@@ -121,7 +111,6 @@ class Transaction extends CI_Controller
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
     }
-
 
     public function dotransac()
     {
@@ -481,9 +470,6 @@ class Transaction extends CI_Controller
         }
     }
 
-
-
-
     public function dotransac_status()
     {
         try {
@@ -522,7 +508,7 @@ class Transaction extends CI_Controller
                             'message' => 'Transaction not found',
                             'details' => []
                         ],
-            
+
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             }
 
@@ -582,6 +568,103 @@ class Transaction extends CI_Controller
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
     }
+
+    public function doget_transactions()
+    {
+        try {
+            $this->validate_api_key();
+
+            $input_json = json_decode(file_get_contents('php://input'), true);
+
+            $datetime_from = $this->input->get('datetime_from', TRUE) ?? ($input_json['datetime_from'] ?? null);
+            $datetime_to   = $this->input->get('datetime_to', TRUE) ?? ($input_json['datetime_to'] ?? null);
+
+            if (!$datetime_from) {
+                return $this->output
+                    ->set_status_header(400)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode([
+                        'success' => false,
+                        'status_code' => 400,
+                        'message' => 'datetime_from is required'
+                    ], JSON_PRETTY_PRINT));
+            }
+
+            $records = $this->transaction->get_transactions_with_particulars($datetime_from, $datetime_to);
+
+            // Group particulars under each transaction
+            $transactions = [];
+            foreach ($records as $row) {
+                $refid = $row['trans_refid'];
+
+                if (!isset($transactions[$refid])) {
+                    $transactions[$refid] = [
+                        'reference_number'  => $row['trans_refid'],
+                        'name'              => $row['trans_payor'],
+                        'company'           => $row['trans_company'],
+                        'particulars'       => [],
+                        'department'        => "BPLS",
+                        'sub_amount'        => $row['trans_sub_total'],
+                        'fee'               => (float)$row['trans_conv_fee'],
+                        'total_amount'      => (float)$row['trans_grand_total'],
+                        'status'            => $row['trans_status'],
+                        'txid'              => $row['trans_txid'],
+                        'txn_date'          => $row['trans_date_created'],
+                        'settled_date'      => $row['trans_settled_date'],
+                        'or_number'         => "",
+                        'or_released'        => "",
+                        'type_of_payment'   => "",
+                        'cash_settled_date' => "",
+                        'released_by'       => "NGSI TEST",
+                    ];
+                }
+
+                // Add particular details
+                if (!empty($row['part_id'])) {
+                    $transactions[$refid]['particulars'][] = [
+                        'part_id'        => $row['part_id'],
+                        'part_code'      => $row['part_code'],
+                        'particular'     => $row['part_particulars'],
+                        'qty'            => (int)$row['part_qty'],
+                        'amount'         => (float)$row['part_amount'],
+                        'other_fees'     => (float)$row['part_other_fees']
+                    ];
+                }
+            }
+
+            $response = [
+                'success'     => true,
+                'status_code' => 200,
+                'date_from'   => $datetime_from,
+                'date_to'     => $datetime_to,
+                'data'        => array_values($transactions),
+                'timestamp'   => date('Y-m-d H:i:s')
+            ];
+
+            return $this->output
+                ->set_status_header(200)
+                ->set_content_type('application/json', 'utf-8')
+                ->set_output(json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        } catch (Throwable $e) {
+            return $this->output
+                ->set_status_header(500)
+                ->set_content_type('application/json', 'utf-8')
+                ->set_output(json_encode([
+                    'success'     => false,
+                    'status_code' => 500,
+                    'error'       => [
+                        'message' => 'Unexpected server error',
+                        'details' => [
+                            'exception' => $e->getMessage(),
+                            'file'      => basename($e->getFile()),
+                            'line'      => $e->getLine()
+                        ]
+                    ],
+                    'timestamp' => date('Y-m-d H:i:s')
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
+    }
+
 
 
     public function status_get($type)
