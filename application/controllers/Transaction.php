@@ -521,6 +521,7 @@ class Transaction extends CI_Controller
                             'message' => 'Transaction not found',
                             'details' => []
                         ],
+
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             }
 
@@ -540,9 +541,6 @@ class Transaction extends CI_Controller
                 ?? $transaction->trans_date
                 ?? null;
 
-            // ✅ Correctly access the nested API response
-            $txnData = $result['data'] ?? [];
-
             $response = [
                 'status' => true,
                 'status_code' => $statusCode,
@@ -555,9 +553,9 @@ class Transaction extends CI_Controller
                     'total_amount' => $transaction->trans_grand_total,
                     'txn_date' => $transaction->trans_date_created ?? "",
                     'settled_date' => ($status === 'PAID') ? $transaction->trans_settled_date : "",
-                    'payment_channel' => $txnData['transaction_type'] ?? "",
-                    'payment_reference' => $txnData['payment-reference'] ?? "",
-                    'transaction_id' => $txnData['transaction_id'] ?? "",
+                    'payment_channel' => "",
+                    'payment_reference' => $result['response']['data']['payment_channel'] ?? "",
+                    'transaction_id' => $result['response']['data']['transaction_id'] ?? "",
                 ],
             ];
 
