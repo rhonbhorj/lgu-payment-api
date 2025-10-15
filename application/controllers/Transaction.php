@@ -31,21 +31,32 @@ class Transaction extends CI_Controller
 
     private function validate_api_key()
     {
+        // 1️⃣ Try to get API key from headers
         $api_key = $this->input->get_request_header('X-API-KEY', TRUE);
 
         if (empty($api_key) && !empty($_SERVER['HTTP_X_API_KEY'])) {
             $api_key = $_SERVER['HTTP_X_API_KEY'];
         }
 
+        // 2️⃣ If not in headers, try from environment/config
         if (empty($api_key)) {
-            $this->output
+            // For CodeIgniter 3: getenv() or constant fallback
+            $api_key = getenv('API_KEY');
+            if (empty($api_key) && defined('API_KEY')) {
+                $api_key = API_KEY;
+            }
+        }
+
+        // 3️⃣ Still empty → reject request
+        if (empty($api_key)) {
+            return $this->output
                 ->set_status_header(400)
                 ->set_content_type('application/json', 'utf-8')
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 400,
                     'response' => [
-                        'message' => 'X-API-KEY is required in header',
+                        'message' => 'X-API-KEY is required (missing in header and environment)',
                         'details' => []
                     ],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES))
@@ -53,9 +64,10 @@ class Transaction extends CI_Controller
             exit;
         }
 
+        // 4️⃣ Validate the API key
         $validKey = $this->Api->validate_api_key($api_key);
         if (!$validKey) {
-            $this->output
+            return $this->output
                 ->set_status_header(403)
                 ->set_content_type('application/json', 'utf-8')
                 ->set_output(json_encode([
@@ -72,6 +84,7 @@ class Transaction extends CI_Controller
 
         return true;
     }
+
 
     public function dogetcategories()
     {
