@@ -162,7 +162,7 @@ class Transaction extends CI_Controller
 
 
             $data = [
-                "reference"      => 'REF-' . $this->generateReference(16),
+                "reference"      => 'REF-' . $this->generateReference(12),
                 "refid"          => $ref_id,
                 "name"           => $name,
                 "amount"         => $amount,
