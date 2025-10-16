@@ -10,6 +10,8 @@ class Transaction extends CI_Controller
     public function __construct()
     {
         parent::__construct();
+        date_default_timezone_set('Asia/Manila');
+        
         $this->load->model('Api_Model', 'Api');
         $this->load->library('../services/ApiService');
         header("Content-Type: application/json");
