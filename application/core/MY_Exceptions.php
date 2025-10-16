@@ -72,10 +72,7 @@ class MY_Exceptions extends CI_Exceptions
             'success' => false,
             'message' => 'A PHP error occurred.',
             'error'   => $message,
-            'file'    => basename($filepath),
-            'line'    => $line,
             'timestamp' => date('Y-m-d H:i:s'),
-            'path' => current_url()
         ];
 
         set_status_header(500);
