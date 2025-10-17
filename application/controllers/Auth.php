@@ -21,30 +21,36 @@ class Auth extends CI_Controller
 	public function authenticate()
 	{
 		$json_input = json_decode($this->input->raw_input_stream, true);
-		$username   = $json_input['username'] ?? null;
-		$password   = md5(trim($json_input['password'] ?? ''));
+
+		$username = trim($json_input['username'] ?? '');
+		$password = md5(trim($json_input['password'] ?? ''));
 
 		$result = $this->Auth_model->login($username, $password);
 
+		// Handle invalid credentials or disabled accounts
 		if (!$result || $result['account_state'] !== 'ENABLED') {
-			echo json_encode([
-				'response' => [
-					'status'  => 'failed',
-					'message' => !$result ? 'Invalid username or password.' : 'Please contact admin to reactivate your account.',
-					'data'    => []
-				]
-			]);
+			$message = !$result
+				? 'Invalid username or password.'
+				: 'Please contact the administrator to reactivate your account.';
+
+			$response = [
+				'status'  => 'failed',
+				'message' => $message,
+				'response' => []
+			];
+
+			echo json_encode($response, JSON_PRETTY_PRINT);
 			return;
 		}
 
-		// Generate login token
+		// Generate secure login token
 		$login_token = md5(uniqid() . time() . $result['user_id']);
 		$this->Auth_model->login_token($result['user_id'], $login_token);
 
-		// ✅ Refresh account_status after update
+		// Update account status
 		$result['account_status'] = 'ACTIVE';
 
-		// Save session
+		// Save session data
 		$this->session->set_userdata([
 			'user_id'        => $result['user_id'],
 			'name'           => $result['name'],
@@ -57,7 +63,7 @@ class Auth extends CI_Controller
 			'login_token'    => $login_token
 		]);
 
-		// Log login
+		// Log user login
 		$this->Auth_model->log_user([
 			'user_id'    => $result['user_id'],
 			'ip_address' => $this->input->ip_address(),
@@ -67,22 +73,24 @@ class Auth extends CI_Controller
 			'session_id' => session_id(),
 		]);
 
-		echo json_encode([
+		// Build success response
+		$response = [
+			'status'  => 'success',
+			'message' => 'Login successful.',
 			'response' => [
-				'status'  => 'success',
-				'message' => 'Login successful.',
-				'data'    => [
-					'user_id'        => $result['user_id'],
-					'name'           => $result['name'],
-					'username'       => $result['username'],
-					'userlevel'      => $result['user_level'],
-					'department'     => $result['department'],
-					'account_status' => $result['account_status'], // ✅ now "ACTIVE"
-					'login_token'    => $login_token
-				]
+				'user_id'        => $result['user_id'],
+				'name'           => $result['name'],
+				'username'       => $result['username'],
+				'userlevel'      => $result['user_level'],
+				'department'     => $result['department'],
+				'account_status' => $result['account_status'],
+				'login_token'    => $login_token
 			]
-		]);
+		];
+
+		echo json_encode($response, JSON_PRETTY_PRINT);
 	}
+
 
 	/**
 	 * Logout user
@@ -128,10 +136,9 @@ class Auth extends CI_Controller
 		$this->session->sess_destroy();
 
 		echo json_encode([
+			'status'         => 'success',
+			'message'        => 'Logged out successfully.',
 			'response' => [
-				'status'         => 'success',
-				'method'         => strtoupper($this->input->method()),
-				'message'        => 'Logged out successfully.',
 				'account_status' => 'INACTIVE'
 			]
 		]);
