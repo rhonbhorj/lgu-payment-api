@@ -7,7 +7,7 @@ class Auth extends CI_Controller
 	{
 		parent::__construct();
 		$this->load->library('session');
-		$this->load->model('Auth_model');
+		$this->load->model('Auth_Model' , 'Auth_model');
 		header('Content-Type: application/json');
 
 		header("Access-Control-Allow-Origin: *");
