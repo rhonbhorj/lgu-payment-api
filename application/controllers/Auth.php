@@ -7,7 +7,7 @@ class Auth extends CI_Controller
 	{
 		parent::__construct();
 		$this->load->library('session');
-		$this->load->model('Auth_Model' , 'Auth_model');
+		$this->load->model('Auth_Model', 'Auth_model');
 		header('Content-Type: application/json');
 
 		header("Access-Control-Allow-Origin: *");
@@ -15,9 +15,7 @@ class Auth extends CI_Controller
 		header("Access-Control-Allow-Headers: Content-Type, Content-Length, Accept-Encoding, X-Requested-With, Authorization, X-API-KEY");
 	}
 
-	/**
-	 * Authenticate user login
-	 */
+
 	public function authenticate()
 	{
 		$json_input = json_decode($this->input->raw_input_stream, true);
@@ -39,7 +37,11 @@ class Auth extends CI_Controller
 				'response' => []
 			];
 
-			echo json_encode($response, JSON_PRETTY_PRINT);
+			// Set HTTP 400 for failed login
+			$this->output
+				->set_status_header(400)
+				->set_content_type('application/json')
+				->set_output(json_encode($response, JSON_PRETTY_PRINT));
 			return;
 		}
 
@@ -88,8 +90,13 @@ class Auth extends CI_Controller
 			]
 		];
 
-		echo json_encode($response, JSON_PRETTY_PRINT);
+		// Send success with HTTP 200
+		$this->output
+			->set_status_header(200)
+			->set_content_type('application/json')
+			->set_output(json_encode($response, JSON_PRETTY_PRINT));
 	}
+
 
 
 	/**
