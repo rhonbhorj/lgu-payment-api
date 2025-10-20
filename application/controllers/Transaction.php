@@ -180,8 +180,9 @@ class Transaction extends CI_Controller
             $mobile = (!empty($mobile)) ? '63' . substr($mobile, 1) : "639000000000";
             if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) $email = "devs@netglobalsolutions.net";
 
-            $total_amount = 0;
+            $subtotal = 0;
             $total_conv_fee = 0;
+            $total_amount = 0;
 
             // ✅ Calculate totals (insert only if everything passes)
             $service_list = !empty($services) ? (isset($services['item_code']) ? [$services] : $services) : [];
@@ -193,10 +194,13 @@ class Transaction extends CI_Controller
                     $item_other    = floatval($srv['item_other_fees'] ?? 0);
                     $conv_fee_item = floatval($srv['convenience_fee'] ?? 0);
 
-                    $line_total = ($qty * $item_amount) + $item_other + $conv_fee_item;
+                    // ✅ Compute line totals properly
+                    $line_subtotal = ($qty * $item_amount) + $item_other;
+                    $line_total = $line_subtotal + $conv_fee_item;
 
-                    $total_amount += $line_total;
+                    $subtotal += $line_subtotal;
                     $total_conv_fee += $conv_fee_item;
+                    $total_amount += $line_total;
                 }
             }
 
@@ -224,13 +228,13 @@ class Transaction extends CI_Controller
                 }
             }
 
-            // ✅ Validate total correctness (no insert if failed)
+            // ✅ Validate total correctness
             if (abs($total_amount - floatval($amount)) > 0.01) {
                 $this->db->trans_rollback();
                 return $this->respond_error('Invalid amount. Sum of item(s) does not match services.', 400);
             }
 
-            // ✅ If validation passed, insert services now
+            // ✅ Insert services
             foreach ($service_list as $srv) {
                 if (is_array($srv)) {
                     $this->transaction->insert_service($ref_id, $srv);
@@ -271,16 +275,16 @@ class Transaction extends CI_Controller
                 ]);
             }
 
-            // ✅ Insert transaction record
+            // ✅ Insert transaction record (with separated fields)
             $transaction = [
                 'trans_no'          => $apiData['reference_number'] ?? $data['reference'],
                 'trans_payor'       => $name,
                 'trans_mobile'      => $mobile,
                 'trans_email'       => $email,
                 'trans_company'     => $company,
-                'trans_sub_total'   => $amount,
-                'trans_conv_fee'    => $conv_fee,
-                'trans_grand_total' => floatval($amount) + floatval($conv_fee),
+                'trans_sub_total'   => $subtotal, // ✅ Subtotal (items + other fees)
+                'trans_conv_fee'    => $conv_fee, // ✅ Total convenience fee
+                'trans_grand_total' => floatval($subtotal) + floatval($conv_fee), // ✅ Grand total
                 'trans_refid'       => $data['refid'] ?? '',
                 'trans_txid'        => $apiData['txn_ref'] ?? '',
                 'trans_ref'         => $data['reference'] ?? '',
@@ -307,7 +311,7 @@ class Transaction extends CI_Controller
             ];
             $this->Api->insert_log($log_data);
 
-            // ✅ Success response
+            // ✅ Success response (include breakdown)
             $endpoint = rtrim(api_url(), '/') . '/payment-form?ref=' . $ref_id;
             $response = [
                 'success' => true,
@@ -315,11 +319,12 @@ class Transaction extends CI_Controller
                 'response' => [
                     'redirect_url'     => $endpoint,
                     'raw_string'       => $raw_msg,
-                    'create_at'        => date('Y-m-d H:i:s'),
+                    'created_at'       => date('Y-m-d H:i:s'),
                     'reference_number' => $data['refid'] ?? '',
                     'ref_id'           => $data['reference'],
-                    'amount'           => $amount,
-                    'conv_fee'         => $conv_fee
+                    'subtotal'         => number_format($subtotal, 2, '.', ''),
+                    'conv_fee'         => number_format($conv_fee, 2, '.', ''),
+                    'grand_total'      => number_format(floatval($subtotal) + floatval($conv_fee), 2, '.', '')
                 ]
             ];
 
@@ -336,6 +341,7 @@ class Transaction extends CI_Controller
             ]);
         }
     }
+
 
     public function dotransac_checkref($ref_id = 0)
     {
