@@ -173,6 +173,9 @@ class Transaction extends CI_Controller
             if (empty($name) || empty($company)) return $this->respond_error('Missing required fields', 400);
             if (!empty($mobile) && !preg_match('/^09\d{9}$/', $mobile)) return $this->respond_error('Mobile number must be 11 digits starting with 09', 400);
 
+            // ✅ Start DB transaction
+            $this->db->trans_begin();
+
             // ✅ Format defaults
             $mobile = (!empty($mobile)) ? '63' . substr($mobile, 1) : "639000000000";
             if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) $email = "devs@netglobalsolutions.net";
@@ -180,24 +183,20 @@ class Transaction extends CI_Controller
             $total_amount = 0;
             $total_conv_fee = 0;
 
-            // ✅ Calculate totals and insert services
-            if (!empty($services)) {
-                $service_list = isset($services['item_code']) ? [$services] : $services;
+            // ✅ Calculate totals (insert only if everything passes)
+            $service_list = !empty($services) ? (isset($services['item_code']) ? [$services] : $services) : [];
 
-                foreach ($service_list as $srv) {
-                    if (is_array($srv)) {
-                        $this->transaction->insert_service($ref_id, $srv);
+            foreach ($service_list as $srv) {
+                if (is_array($srv)) {
+                    $qty           = floatval($srv['item_qty'] ?? 1);
+                    $item_amount   = floatval($srv['item_amount'] ?? 0);
+                    $item_other    = floatval($srv['item_other_fees'] ?? 0);
+                    $conv_fee_item = floatval($srv['convenience_fee'] ?? 0);
 
-                        $qty           = floatval($srv['item_qty'] ?? 1);
-                        $item_amount   = floatval($srv['item_amount'] ?? 0);
-                        $item_other    = floatval($srv['item_other_fees'] ?? 0);
-                        $conv_fee_item = floatval($srv['convenience_fee'] ?? 0);
+                    $line_total = ($qty * $item_amount) + $item_other + $conv_fee_item;
 
-                        $line_total = ($qty * $item_amount) + $item_other + $conv_fee_item;
-
-                        $total_amount += $line_total;
-                        $total_conv_fee += $conv_fee_item;
-                    }
+                    $total_amount += $line_total;
+                    $total_conv_fee += $conv_fee_item;
                 }
             }
 
@@ -220,19 +219,22 @@ class Transaction extends CI_Controller
                 } elseif ($amount_val > 1000000) {
                     $conv_fee = $amount_val * 0.002;
                 } else {
-                    return $this->respond_error(
-                        'Invalid amount range for convenience fee computation.',
-                        400
-                    );
+                    $this->db->trans_rollback();
+                    return $this->respond_error('Invalid amount range for convenience fee computation.', 400);
                 }
             }
 
-            // ✅ Validate total correctness
+            // ✅ Validate total correctness (no insert if failed)
             if (abs($total_amount - floatval($amount)) > 0.01) {
-                return $this->respond_error(
-                    'Invalid amount. Sum of item(s) does not match services.',
-                    400
-                );
+                $this->db->trans_rollback();
+                return $this->respond_error('Invalid amount. Sum of item(s) does not match services.', 400);
+            }
+
+            // ✅ If validation passed, insert services now
+            foreach ($service_list as $srv) {
+                if (is_array($srv)) {
+                    $this->transaction->insert_service($ref_id, $srv);
+                }
             }
 
             // ✅ Build payload for API
@@ -257,11 +259,13 @@ class Transaction extends CI_Controller
             $raw_json = json_decode($raw_msg, true);
 
             if (!empty($raw_json['message']) && stripos($raw_json['message'], 'amount must be minimun') !== false) {
+                $this->db->trans_rollback();
                 $flat_response = $raw_json['raw_response'] ?? $raw_json;
                 return $this->respond_error($raw_json['message'], 400, ['raw_response' => $flat_response]);
             }
 
             if (empty($apiData)) {
+                $this->db->trans_rollback();
                 return $this->respond_error('Failed to generate transaction from API', 502, [
                     'raw_response' => $result['raw_response'] ?? $result
                 ]);
@@ -285,6 +289,9 @@ class Transaction extends CI_Controller
                 'trans_status'      => 'CREATED'
             ];
             $this->transaction->create_transaction($transaction);
+
+            // ✅ Commit if all successful
+            $this->db->trans_commit();
 
             // ✅ Log API call
             $request_method = $this->input->method(TRUE);
@@ -321,6 +328,7 @@ class Transaction extends CI_Controller
                 ->set_content_type('application/json', 'utf-8')
                 ->set_output(json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         } catch (Throwable $e) {
+            $this->db->trans_rollback();
             return $this->respond_error('Unexpected server error', 500, [
                 'error' => $e->getMessage(),
                 'file'  => basename($e->getFile()),
