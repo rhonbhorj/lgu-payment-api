@@ -10,15 +10,18 @@ class Transaction extends CI_Controller
     public function __construct()
     {
         parent::__construct();
-        date_default_timezone_set('Asia/Manila');
-        $this->load->model('Api_Model', 'Api');
-        $this->load->library('../services/ApiService');
-        header("Content-Type: application/json");
-        $this->load->model('Trans_Model', 'transaction');
 
+        $this->load->model('Api_Model', 'Api');
+        $this->load->model('Trans_Model', 'transaction');
+        $this->load->library('../services/ApiService');
+        $this->load->helper('email');
+
+        header("Content-Type: application/json");
         header("Access-Control-Allow-Origin: *");
         header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
         header("Access-Control-Allow-Headers: Content-Type, Content-Length, Accept-Encoding, X-Requested-With, Authorization, X-API-KEY");
+
+        date_default_timezone_set('Asia/Manila');
     }
 
     private function generateReference($length = 6)
@@ -164,7 +167,6 @@ class Transaction extends CI_Controller
             $company  = trim($raw_input['company'] ?? $this->input->post('company', TRUE) ?? '');
             $mobile   = trim($raw_input['mobile_number'] ?? $this->input->post('mobile_number', TRUE) ?? '');
             $email    = trim($raw_input['email'] ?? $this->input->post('email', TRUE) ?? '');
-            $conv_fee = trim($raw_input['convience_fee'] ?? $this->input->post('convience_fee', TRUE) ?? '');
             $services = $raw_input['services'] ?? [];
 
             // ✅ Basic validation
@@ -184,7 +186,7 @@ class Transaction extends CI_Controller
             $total_conv_fee = 0;
             $total_amount = 0;
 
-            // ✅ Calculate totals (insert only if everything passes)
+            // ✅ Prepare service list (normalize array format)
             $service_list = !empty($services) ? (isset($services['item_code']) ? [$services] : $services) : [];
 
             foreach ($service_list as $srv) {
@@ -204,34 +206,22 @@ class Transaction extends CI_Controller
                 }
             }
 
-            // ✅ Auto-calculate amount and conv_fee if missing
+            // ✅ Auto-calculate amount if missing
             if (empty($amount) || floatval($amount) <= 0) {
                 $amount = $total_amount;
             }
-            if (empty($conv_fee) || floatval($conv_fee) <= 0) {
-                $conv_fee = $total_conv_fee;
-            }
 
-            // ✅ Compute conv_fee if still missing based on amount
-            if (floatval($conv_fee) <= 0) {
-                $amount_val = floatval($amount);
-
-                if ($amount_val >= 1 && $amount_val <= 5000) {
-                    $conv_fee = 25;
-                } elseif ($amount_val >= 5001 && $amount_val <= 1000000) {
-                    $conv_fee = $amount_val * 0.005;
-                } elseif ($amount_val > 1000000) {
-                    $conv_fee = $amount_val * 0.002;
-                } else {
-                    $this->db->trans_rollback();
-                    return $this->respond_error('Invalid amount range for convenience fee computation.', 400);
-                }
-            }
-
-            // ✅ Validate total correctness
-            if (abs($total_amount - floatval($amount)) > 0.01) {
+            // ✅ Compute conv_fee automatically based on amount
+            $amount_val = floatval($amount);
+            if ($amount_val >= 1 && $amount_val <= 5000) {
+                $conv_fee = 25;
+            } elseif ($amount_val >= 5001 && $amount_val <= 1000000) {
+                $conv_fee = $amount_val * 0.005;
+            } elseif ($amount_val > 1000000) {
+                $conv_fee = $amount_val * 0.002;
+            } else {
                 $this->db->trans_rollback();
-                return $this->respond_error('Invalid amount. Sum of item(s) does not match services.', 400);
+                return $this->respond_error('Invalid amount range for convenience fee computation.', 400);
             }
 
             // ✅ Insert services
@@ -275,16 +265,16 @@ class Transaction extends CI_Controller
                 ]);
             }
 
-            // ✅ Insert transaction record (with separated fields)
+            // ✅ Insert transaction record
             $transaction = [
                 'trans_no'          => $apiData['reference_number'] ?? $data['reference'],
                 'trans_payor'       => $name,
                 'trans_mobile'      => $mobile,
                 'trans_email'       => $email,
                 'trans_company'     => $company,
-                'trans_sub_total'   => $subtotal, // ✅ Subtotal (items + other fees)
-                'trans_conv_fee'    => $conv_fee, // ✅ Total convenience fee
-                'trans_grand_total' => floatval($subtotal) + floatval($conv_fee), // ✅ Grand total
+                'trans_sub_total'   => $subtotal,
+                'trans_conv_fee'    => $conv_fee,
+                'trans_grand_total' => floatval($subtotal) + floatval($conv_fee),
                 'trans_refid'       => $data['refid'] ?? '',
                 'trans_txid'        => $apiData['txn_ref'] ?? '',
                 'trans_ref'         => $data['reference'] ?? '',
@@ -294,7 +284,7 @@ class Transaction extends CI_Controller
             ];
             $this->transaction->create_transaction($transaction);
 
-            // ✅ Commit if all successful
+            // ✅ Commit transaction
             $this->db->trans_commit();
 
             // ✅ Log API call
@@ -311,7 +301,7 @@ class Transaction extends CI_Controller
             ];
             $this->Api->insert_log($log_data);
 
-            // ✅ Success response (include breakdown)
+            // ✅ Success response
             $endpoint = rtrim(api_url(), '/') . '/payment-form?ref=' . $ref_id;
             $response = [
                 'success' => true,
@@ -457,6 +447,8 @@ class Transaction extends CI_Controller
     public function dotransac_postback($ref_id = 0)
     {
 
+
+
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             return $this->output
                 ->set_status_header(405)
@@ -568,6 +560,21 @@ class Transaction extends CI_Controller
                 $settledDate = null;
             }
 
+            $emailParams = [
+                'reference_number' => $ref_id,
+                'trans_no' => $transaction->trans_no,
+                'subject' => 'Payment Confirmation - REF:' . $ref_id,
+                'email' => $transaction->trans_email ? $transaction->trans_email : "devs@netglobalsolutions.net",
+                'date' => $transaction->trans_date_created,
+                'company' => $transaction->trans_company,
+                'payor_name' => $transaction->trans_payor,
+                'mobile_no' => $transaction->trans_mobile,
+                'sub_total' => $transaction->trans_sub_total,
+                'convenience_fee' => $transaction->trans_conv_fee,
+                'grand_total' => $transaction->trans_grand_total,
+            ];
+
+            sendemail($emailParams);
             return $this->output
                 ->set_status_header(200)
                 ->set_content_type('application/json', 'utf-8')
@@ -576,7 +583,9 @@ class Transaction extends CI_Controller
                     'status_code' => 200,
                     'response' => [
                         'status' => $statusLabel,
-                        'settled_date' => $settledDate
+                        'settled_date' => $settledDate,
+                        'email_body' => $emailParams,
+                        'email_status' => "Sent"
                     ],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         } catch (Throwable $e) {
