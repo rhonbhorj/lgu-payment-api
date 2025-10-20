@@ -1,5 +1,5 @@
 <?php
-defined('BASEPATH') OR exit('No direct script access allowed');
+defined('BASEPATH') or exit('No direct script access allowed');
 
 /*
 | -------------------------------------------------------------------------
@@ -62,7 +62,8 @@ $route['api-insert-dept'] = 'auth/insert_department';
 $route['api-fetch-deparment'] = 'auth/get_departments';
 $route['api-register'] = 'auth/register';
 
-$route['api-create-transactions'] = 'transaction/dotransac';
+$route['api-create-transactions']= 'transaction/dotransac';
+
 $route['api-categories'] = 'transaction/dogetcategories';
 $route['api-checkref'] = 'transaction/dotransac_checkref';
 $route['api-postback'] = 'transaction/dotransac_postback';

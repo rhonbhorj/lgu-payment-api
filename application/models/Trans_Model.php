@@ -45,34 +45,57 @@ class Trans_Model extends CI_Model
             ->update('tbl_transactions', $update);
     }
 
-    // === Insert service (skip if category not found) ===
     public function insert_service($trans_no, $services)
     {
-        if (empty($services) || count($services) < 4) {
+        if (empty($services) || !is_array($services)) {
             return false;
         }
 
-        // Find category
-        $category = $this->db->where('cat_code', $services[0])
+        // ✅ Detect and normalize service format
+        if (array_keys($services) === range(0, count($services) - 1)) {
+            // Old numeric array format
+            $item_code      = $services[0] ?? null;
+            $item_qty       = $services[1] ?? 1;
+            $item_amount    = $services[2] ?? 0;
+            $item_otherfees = $services[3] ?? 0;
+        } else {
+            // New associative format from JSON
+            $item_code      = $services['item_code'] ?? null;
+            $item_qty       = $services['item_qty'] ?? 1;
+            $item_amount    = $services['item_amount'] ?? 0;
+            $item_otherfees = $services['item_other_fees'] ?? 0;
+        }
+
+        // ✅ Validate before proceeding
+        if (empty($item_code)) {
+            return false;
+        }
+
+        // ✅ Lookup category
+        $category = $this->db
+            ->where('cat_code', $item_code)
             ->get('tbl_categories')
             ->row();
 
         if (!$category) {
-            // Skip insertion if category not found
             return false;
         }
 
+        // ✅ Prepare insert data
         $data = [
-            'part_code'        => $services[0],
+            'part_code'        => $item_code,
             'part_transno'     => $trans_no,
-            'part_qty'         => $services[1],
-            'part_amount'      => $services[2],
-            'part_other_fees'  => $services[3],
+            'part_qty'         => $item_qty,
+            'part_amount'      => $item_amount,
+            'part_other_fees'  => $item_otherfees,
             'part_particulars' => $category->cat_category
         ];
 
+        // ✅ Insert and return success/failure
         return $this->db->insert('tbl_transaction_particulars', $data);
     }
+
+
 
     // === Get total other fees for a transaction ===
     public function getTotalOtherFee($refid)

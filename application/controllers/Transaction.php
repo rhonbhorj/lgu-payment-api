@@ -41,16 +41,15 @@ class Transaction extends CI_Controller
 
         // 2️⃣ If not in headers, try from environment/config
         if (empty($api_key)) {
-            // For CodeIgniter 3: getenv() or constant fallback
             $api_key = getenv('API_KEY');
             if (empty($api_key) && defined('API_KEY')) {
                 $api_key = API_KEY;
             }
         }
 
-        // 3️⃣ Still empty → reject request
+        // 3️⃣ Still empty → reject request and stop
         if (empty($api_key)) {
-            return $this->output
+            $this->output
                 ->set_status_header(400)
                 ->set_content_type('application/json', 'utf-8')
                 ->set_output(json_encode([
@@ -62,13 +61,13 @@ class Transaction extends CI_Controller
                     ],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES))
                 ->_display();
-            exit;
+            exit; // 🛑 STOP HERE
         }
 
         // 4️⃣ Validate the API key
         $validKey = $this->Api->validate_api_key($api_key);
         if (!$validKey) {
-            return $this->output
+            $this->output
                 ->set_status_header(403)
                 ->set_content_type('application/json', 'utf-8')
                 ->set_output(json_encode([
@@ -80,15 +79,27 @@ class Transaction extends CI_Controller
                     ],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES))
                 ->_display();
-            exit;
+            exit; // 🛑 STOP HERE TOO
         }
 
-        return true;
+        return true; // ✅ Continue if valid
     }
 
 
     public function dogetcategories()
     {
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+            return $this->output
+                ->set_status_header(405) // Method Not Allowed
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'status_code' => 405,
+                    'message' => 'Method not allowed. Use GET instead.'
+                ]));
+        }
+
         try {
             $this->validate_api_key();
             $categories = $this->transaction->get_all_categories();
@@ -112,9 +123,9 @@ class Transaction extends CI_Controller
                 ->set_status_header(500)
                 ->set_content_type('application/json', 'utf-8')
                 ->set_output(json_encode([
-                    'success' => false,
+                    'status' => false,
                     'status_code' => 500,
-                    'error' => [
+                    'response' => [
                         'message' => 'Unexpected server error',
                         'details' => [
                             'exception' => $e->getMessage(),
@@ -128,9 +139,23 @@ class Transaction extends CI_Controller
 
     public function dotransac()
     {
-        try {
+        // ✅ Allow only POST
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            return $this->output
+                ->set_status_header(405)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'status_code' => 405,
+                    'response' => [
+                        'message' => 'Method not allowed. Use POST instead.',
+                    ]
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
 
+        try {
             $this->validate_api_key();
+
             $raw_input = json_decode($this->input->raw_input_stream, true);
 
             $ref_id   = trim($raw_input['reference_number'] ?? $this->input->post('reference_number', TRUE) ?? '');
@@ -142,26 +167,75 @@ class Transaction extends CI_Controller
             $conv_fee = trim($raw_input['convience_fee'] ?? $this->input->post('convience_fee', TRUE) ?? '');
             $services = $raw_input['services'] ?? [];
 
-
+            // ✅ Basic validation
             if (empty($ref_id)) return $this->respond_error('Reference number is required', 400);
             if ($this->transaction->check_refid_exists($ref_id)) return $this->respond_error('Transaction already exists', 400);
-            if (empty($name) || empty($amount) || empty($company)) return $this->respond_error('Missing required fields', 400);
+            if (empty($name) || empty($company)) return $this->respond_error('Missing required fields', 400);
             if (!empty($mobile) && !preg_match('/^09\d{9}$/', $mobile)) return $this->respond_error('Mobile number must be 11 digits starting with 09', 400);
 
-
+            // ✅ Format defaults
             $mobile = (!empty($mobile)) ? '63' . substr($mobile, 1) : "639000000000";
             if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) $email = "devs@netglobalsolutions.net";
 
+            $total_amount = 0;
+            $total_conv_fee = 0;
 
+            // ✅ Calculate totals and insert services
             if (!empty($services)) {
-                if (is_array($services[0])) {
-                    foreach ($services as $srv) $this->transaction->insert_service($ref_id, $srv);
-                } else {
-                    $this->transaction->insert_service($ref_id, $services);
+                $service_list = isset($services['item_code']) ? [$services] : $services;
+
+                foreach ($service_list as $srv) {
+                    if (is_array($srv)) {
+                        $this->transaction->insert_service($ref_id, $srv);
+
+                        $qty           = floatval($srv['item_qty'] ?? 1);
+                        $item_amount   = floatval($srv['item_amount'] ?? 0);
+                        $item_other    = floatval($srv['item_other_fees'] ?? 0);
+                        $conv_fee_item = floatval($srv['convenience_fee'] ?? 0);
+
+                        $line_total = ($qty * $item_amount) + $item_other + $conv_fee_item;
+
+                        $total_amount += $line_total;
+                        $total_conv_fee += $conv_fee_item;
+                    }
                 }
             }
 
+            // ✅ Auto-calculate amount and conv_fee if missing
+            if (empty($amount) || floatval($amount) <= 0) {
+                $amount = $total_amount;
+            }
+            if (empty($conv_fee) || floatval($conv_fee) <= 0) {
+                $conv_fee = $total_conv_fee;
+            }
 
+            // ✅ Compute conv_fee if still missing based on amount
+            if (floatval($conv_fee) <= 0) {
+                $amount_val = floatval($amount);
+
+                if ($amount_val >= 1 && $amount_val <= 5000) {
+                    $conv_fee = 25;
+                } elseif ($amount_val >= 5001 && $amount_val <= 1000000) {
+                    $conv_fee = $amount_val * 0.005;
+                } elseif ($amount_val > 1000000) {
+                    $conv_fee = $amount_val * 0.002;
+                } else {
+                    return $this->respond_error(
+                        'Invalid amount range for convenience fee computation.',
+                        400
+                    );
+                }
+            }
+
+            // ✅ Validate total correctness
+            if (abs($total_amount - floatval($amount)) > 0.01) {
+                return $this->respond_error(
+                    'Invalid amount. Sum of item(s) does not match services.',
+                    400
+                );
+            }
+
+            // ✅ Build payload for API
             $data = [
                 "reference"      => 'REF-' . $this->generateReference(12),
                 "refid"          => $ref_id,
@@ -175,11 +249,9 @@ class Transaction extends CI_Controller
                 "callback_url"   => base_url() . '/api-postback?ref_id=' . $ref_id
             ];
 
-
             $result = $this->apiservice->generate_qr_api($data);
             if (is_string($result)) $result = json_decode($result, true);
             $apiData = $result['data'] ?? [];
-
 
             $raw_msg = $apiData['raw_string'] ?? json_encode($apiData);
             $raw_json = json_decode($raw_msg, true);
@@ -195,7 +267,7 @@ class Transaction extends CI_Controller
                 ]);
             }
 
-
+            // ✅ Insert transaction record
             $transaction = [
                 'trans_no'          => $apiData['reference_number'] ?? $data['reference'],
                 'trans_payor'       => $name,
@@ -214,7 +286,7 @@ class Transaction extends CI_Controller
             ];
             $this->transaction->create_transaction($transaction);
 
-
+            // ✅ Log API call
             $request_method = $this->input->method(TRUE);
             $request_params = !empty($raw_input) ? $raw_input : ($request_method === 'POST' ? $this->input->post(NULL, TRUE) : $this->input->get(NULL, TRUE));
             $log_data = [
@@ -228,7 +300,7 @@ class Transaction extends CI_Controller
             ];
             $this->Api->insert_log($log_data);
 
-
+            // ✅ Success response
             $endpoint = rtrim(api_url(), '/') . '/payment-form?ref=' . $ref_id;
             $response = [
                 'success' => true,
@@ -238,7 +310,9 @@ class Transaction extends CI_Controller
                     'raw_string'       => $raw_msg,
                     'create_at'        => date('Y-m-d H:i:s'),
                     'reference_number' => $data['refid'] ?? '',
-                    'ref_id'           => $data['reference']
+                    'ref_id'           => $data['reference'],
+                    'amount'           => $amount,
+                    'conv_fee'         => $conv_fee
                 ]
             ];
 
@@ -257,6 +331,19 @@ class Transaction extends CI_Controller
 
     public function dotransac_checkref($ref_id = 0)
     {
+        if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+            return $this->output
+                ->set_status_header(405)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'status_code' => 405,
+                    'response' => [
+                        'message' => 'Method not allowed. Use GET instead.',
+                    ]
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
+
         try {
             $this->validate_api_key();
 
@@ -355,6 +442,20 @@ class Transaction extends CI_Controller
 
     public function dotransac_postback($ref_id = 0)
     {
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            return $this->output
+                ->set_status_header(405)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'status_code' => 405,
+                    'response' => [
+                        'message' => 'Method not allowed. Use POST instead.',
+                    ]
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
+
         try {
             $this->validate_api_key();
 
@@ -485,6 +586,21 @@ class Transaction extends CI_Controller
 
     public function dotransac_status()
     {
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            return $this->output
+                ->set_status_header(405)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'status_code' => 405,
+                    'response' => [
+                        'message' => 'Method not allowed. Use POST instead.',
+                    ]
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
+
+
         try {
             $this->validate_api_key();
 
@@ -584,6 +700,20 @@ class Transaction extends CI_Controller
 
     public function doget_transactions()
     {
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+            return $this->output
+                ->set_status_header(405)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'status_code' => 405,
+                    'response' => [
+                        'message' => 'Method not allowed. Use GET instead.',
+                    ]
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
+
         try {
             $this->validate_api_key();
 
