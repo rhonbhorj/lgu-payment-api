@@ -236,7 +236,7 @@ class Transaction extends CI_Controller
                 "reference"      => 'REF-' . $this->generateReference(12),
                 "refid"          => $ref_id,
                 "name"           => $name,
-                "amount"         => $amount,
+                "amount"         => number_format(floatval($subtotal) + floatval($conv_fee), 2, '.', ''),
                 "mobile_number"  => $mobile,
                 "email"          => $email,
                 "convience_fee"  => $conv_fee,
