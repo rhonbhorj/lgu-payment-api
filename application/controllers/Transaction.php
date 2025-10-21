@@ -463,8 +463,6 @@ class Transaction extends CI_Controller
         }
 
         try {
-            $this->validate_api_key();
-
             $ref_id = $this->input->get('ref_id', TRUE)
                 ?? $this->input->get('refid', TRUE)
                 ?? $ref_id;
