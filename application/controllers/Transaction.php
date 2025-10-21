@@ -641,12 +641,10 @@ class Transaction extends CI_Controller
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             }
 
-            $result = $this->apiservice->check_status_api([
-                'reference_number' => $ref_id
-            ]);
-
             $transaction = $this->transaction->get_by_refid($ref_id);
-
+            $result = $this->apiservice->check_status_api([
+                'reference_number' => $transaction->trans_no
+            ]);
             if (!$transaction) {
                 return $this->output
                     ->set_status_header(404)
@@ -691,7 +689,7 @@ class Transaction extends CI_Controller
                     'txn_date' => $transaction->trans_date_created ?? "",
                     'settled_date' => ($status === 'PAID') ? $transaction->trans_settled_date : "",
                     'payment_channel' => "",
-                    'payment_reference' => $result['response']['data']['payment_channel'] ?? "",
+                    'payment_reference' => $result['response']['data']['payment-reference'] ?? "",
                     'transaction_id' => $result['response']['data']['transaction_id'] ?? "",
                 ],
             ];
