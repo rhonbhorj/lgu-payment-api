@@ -605,117 +605,121 @@ class Transaction extends CI_Controller
         }
     }
 
-    public function dotransac_status()
-    {
+   public function dotransac_status()
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        return $this->output
+            ->set_status_header(405)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'status' => false,
+                'status_code' => 405,
+                'response' => [
+                    'message' => 'Method not allowed. Use POST instead.',
+                ]
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
 
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    try {
+        $this->validate_api_key();
+
+        $ref_id = $this->input->get('ref_id', TRUE);
+
+        if (empty($ref_id)) {
             return $this->output
-                ->set_status_header(405)
-                ->set_content_type('application/json')
+                ->set_status_header(400)
+                ->set_content_type('application/json', 'utf-8')
                 ->set_output(json_encode([
                     'status' => false,
-                    'status_code' => 405,
+                    'status_code' => 400,
                     'response' => [
-                        'message' => 'Method not allowed. Use POST instead.',
-                    ]
-                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        }
-
-
-        try {
-            $this->validate_api_key();
-
-            $ref_id = $this->input->get('ref_id', TRUE);
-
-            if (empty($ref_id)) {
-                return $this->output
-                    ->set_status_header(400)
-                    ->set_content_type('application/json', 'utf-8')
-                    ->set_output(json_encode([
-                        'status' => false,
-                        'status_code' => 400,
-                        'response' => [
-                            'message' => 'Missing ref_id',
-                            'details' => []
-                        ],
-                    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-            }
-
-            $transaction = $this->transaction->get_by_refid($ref_id);
-            $result = $this->apiservice->check_status_api([
-                'reference_number' => $transaction->trans_no
-            ]);
-            if (!$transaction) {
-                return $this->output
-                    ->set_status_header(404)
-                    ->set_content_type('application/json', 'utf-8')
-                    ->set_output(json_encode([
-                        'status' => false,
-                        'status_code' => 404,
-                        'response' => [
-                            'message' => 'Transaction not found',
-                            'details' => []
-                        ],
-
-                    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-            }
-
-            $status = $this->status_get($transaction->trans_status);
-            if ($status === 'PAID') {
-                $statusCode = 200;
-            } elseif ($status === 'PENDING') {
-                $statusCode = 202;
-            } elseif (in_array($status, ['FAILED', 'CANCELLED', 'DECLINED'])) {
-                $statusCode = 400;
-            } else {
-                $statusCode = 200;
-            }
-
-            $updatedAt = $transaction->updated_at
-                ?? $transaction->trans_updated
-                ?? $transaction->trans_date
-                ?? null;
-
-            $response = [
-                'status' => true,
-                'status_code' => $statusCode,
-                'response' => [
-                    'status' => $status,
-                    'reference_number' => $transaction->trans_refid,
-                    'ref_id' => $transaction->trans_no,
-                    'fee' => $transaction->trans_conv_fee,
-                    'amount' => $transaction->trans_sub_total,
-                    'total_amount' => $transaction->trans_grand_total,
-                    'txn_date' => $transaction->trans_date_created ?? "",
-                    'settled_date' => ($status === 'PAID') ? $transaction->trans_settled_date : "",
-                    'payment_channel' =>$result['response']['data']['payment-channel'] ?? "",
-                    'payment_reference' => $result['response']['data']['payment-reference'] ?? "",
-                    'transaction_id' => $result['response']['data']['transaction_id'] ?? "",
-                ],
-            ];
-
-            return $this->output
-                ->set_status_header($statusCode)
-                ->set_content_type('application/json', 'utf-8')
-                ->set_output(json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        } catch (Throwable $e) {
-            return $this->output
-                ->set_status_header(500)
-                ->set_content_type('application/json', 'utf-8')
-                ->set_output(json_encode([
-                    'status' => true,
-                    'status_code' => 500,
-                    'response' => [
-                        'message' => 'Unexpected server error',
-                        'details' => [
-                            'exception' => $e->getMessage(),
-                            'file' => basename($e->getFile()),
-                            'line' => $e->getLine()
-                        ]
+                        'message' => 'Missing ref_id',
+                        'details' => []
                     ],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
+
+        // ✅ Fetch transaction first
+        $transaction = $this->transaction->get_by_refid($ref_id);
+
+        // ✅ If not found, stop here (no API call)
+        if (!$transaction) {
+            return $this->output
+                ->set_status_header(404)
+                ->set_content_type('application/json', 'utf-8')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'status_code' => 404,
+                    'response' => [
+                        'message' => 'Transaction not found',
+                        'details' => []
+                    ],
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
+
+        // ✅ Only execute this if transaction exists
+        $result = $this->apiservice->check_status_api([
+            'reference_number' => $transaction->trans_no
+        ]);
+
+        $status = $this->status_get($transaction->trans_status);
+        if ($status === 'PAID') {
+            $statusCode = 200;
+        } elseif ($status === 'PENDING') {
+            $statusCode = 202;
+        } elseif (in_array($status, ['FAILED', 'CANCELLED', 'DECLINED'])) {
+            $statusCode = 400;
+        } else {
+            $statusCode = 200;
+        }
+
+        $updatedAt = $transaction->updated_at
+            ?? $transaction->trans_updated
+            ?? $transaction->trans_date
+            ?? null;
+
+        $response = [
+            'status' => true,
+            'status_code' => $statusCode,
+            'response' => [
+                'status' => $status,
+                'reference_number' => $transaction->trans_refid,
+                'ref_id' => $transaction->trans_no,
+                'fee' => $transaction->trans_conv_fee,
+                'amount' => $transaction->trans_sub_total,
+                'total_amount' => $transaction->trans_grand_total,
+                'txn_date' => $transaction->trans_date_created ?? "",
+                'settled_date' => ($status === 'PAID') ? $transaction->trans_settled_date : "",
+                'payment_channel' => $result['response']['data']['payment-channel'] ?? "",
+                'payment_reference' => $result['response']['data']['payment-reference'] ?? "",
+                'transaction_id' => $result['response']['data']['transaction_id'] ?? "",
+            ],
+        ];
+
+        return $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json', 'utf-8')
+            ->set_output(json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+    } catch (Throwable $e) {
+        return $this->output
+            ->set_status_header(500)
+            ->set_content_type('application/json', 'utf-8')
+            ->set_output(json_encode([
+                'status' => false, // corrected from true to false
+                'status_code' => 500,
+                'response' => [
+                    'message' => 'Unexpected server error',
+                    'details' => [
+                        'exception' => $e->getMessage(),
+                        'file' => basename($e->getFile()),
+                        'line' => $e->getLine()
+                    ]
+                ],
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
+}
+
 
     public function doget_transactions()
     {
