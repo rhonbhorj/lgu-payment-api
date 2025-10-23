@@ -88,58 +88,6 @@ class Transaction extends CI_Controller
         return true; // ✅ Continue if valid
     }
 
-
-    public function dogetcategories()
-    {
-
-        if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-            return $this->output
-                ->set_status_header(405) // Method Not Allowed
-                ->set_content_type('application/json')
-                ->set_output(json_encode([
-                    'status' => false,
-                    'status_code' => 405,
-                    'message' => 'Method not allowed. Use GET instead.'
-                ]));
-        }
-
-        try {
-            $this->validate_api_key();
-            $categories = $this->transaction->get_all_categories();
-            $filtered = array_map(function ($row) {
-                return [
-                    'cat_code'     => $row['cat_code'],
-                    'cat_category' => $row['cat_category'],
-                ];
-            }, $categories);
-
-            return $this->output
-                ->set_status_header(200)
-                ->set_content_type('application/json', 'utf-8')
-                ->set_output(json_encode([
-                    'status' => true,
-                    'status_code' => 200,
-                    'response' => $filtered,
-                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        } catch (Throwable $e) {
-            return $this->output
-                ->set_status_header(500)
-                ->set_content_type('application/json', 'utf-8')
-                ->set_output(json_encode([
-                    'status' => false,
-                    'status_code' => 500,
-                    'response' => [
-                        'message' => 'Unexpected server error',
-                        'details' => [
-                            'exception' => $e->getMessage(),
-                            'file' => basename($e->getFile()),
-                            'line' => $e->getLine()
-                        ]
-                    ],
-                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        }
-    }
-
     public function dotransac()
     {
         // ✅ Allow only POST
@@ -170,17 +118,34 @@ class Transaction extends CI_Controller
             $services = $raw_input['services'] ?? [];
 
             // ✅ Basic validation
-            if (empty($ref_id)) return $this->respond_error('Reference number is required', 400);
-            if ($this->transaction->check_refid_exists($ref_id)) return $this->respond_error('Transaction already exists', 400);
-            if (empty($name) || empty($company)) return $this->respond_error('Missing required fields', 400);
-            if (!empty($mobile) && !preg_match('/^09\d{9}$/', $mobile)) return $this->respond_error('Mobile number must be 11 digits starting with 09', 400);
+            if (empty($ref_id)) {
+                return $this->respond_error('Reference number is required', 400);
+            }
+
+            if (strlen($ref_id) > 30) {
+                return $this->respond_error('Reference number is too long. Maximum 30 characters allowed.', 400);
+            }
+
+            if ($this->transaction->check_refid_exists($ref_id)) {
+                return $this->respond_error('Transaction already exists', 400);
+            }
+
+            if (empty($name) || empty($company)) {
+                return $this->respond_error('Missing required fields', 400);
+            }
+
+            if (!empty($mobile) && !preg_match('/^09\d{9}$/', $mobile)) {
+                return $this->respond_error('Mobile number must be 11 digits starting with 09', 400);
+            }
 
             // ✅ Start DB transaction
             $this->db->trans_begin();
 
             // ✅ Format defaults
             $mobile = (!empty($mobile)) ? '63' . substr($mobile, 1) : "639000000000";
-            if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) $email = "devs@netglobalsolutions.net";
+            if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $email = "devs@netglobalsolutions.net";
+            }
 
             $subtotal = 0;
             $total_conv_fee = 0;
@@ -196,13 +161,12 @@ class Transaction extends CI_Controller
                     $item_other    = floatval($srv['item_other_fees'] ?? 0);
                     $conv_fee_item = floatval($srv['convenience_fee'] ?? 0);
 
-                    // ✅ Compute line totals properly
                     $line_subtotal = ($qty * $item_amount) + $item_other;
-                    $line_total = $line_subtotal + $conv_fee_item;
+                    $line_total    = $line_subtotal + $conv_fee_item;
 
-                    $subtotal += $line_subtotal;
+                    $subtotal       += $line_subtotal;
                     $total_conv_fee += $conv_fee_item;
-                    $total_amount += $line_total;
+                    $total_amount   += $line_total;
                 }
             }
 
@@ -211,7 +175,7 @@ class Transaction extends CI_Controller
                 $amount = $total_amount;
             }
 
-            // ✅ Compute conv_fee automatically based on amount
+            // ✅ Compute convenience fee
             $amount_val = floatval($amount);
             if ($amount_val >= 1 && $amount_val <= 5000) {
                 $conv_fee = 25;
@@ -331,6 +295,7 @@ class Transaction extends CI_Controller
             ]);
         }
     }
+
 
 
     public function dotransac_checkref($ref_id = 0)
