@@ -58,8 +58,8 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 400,
+                    'message' => 'X-API-KEY is required (missing in header and environment)',
                     'response' => [
-                        'message' => 'X-API-KEY is required (missing in header and environment)',
                         'details' => []
                     ],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES))
@@ -76,8 +76,8 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 403,
+                    'message' => 'Invalid or inactive X-API-KEY',
                     'response' => [
-                        'message' => 'Invalid or inactive X-API-KEY',
                         'details' => []
                     ],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES))
@@ -90,7 +90,7 @@ class Transaction extends CI_Controller
 
     public function dotransac()
     {
-        // ✅ Allow only POST
+        // Allow only POST
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             return $this->output
                 ->set_status_header(405)
@@ -98,203 +98,189 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 405,
-                    'response' => [
-                        'message' => 'Method not allowed. Use POST instead.',
-                    ]
+                    'message' => 'Method not allowed. Use POST instead.',
+                    'response' => []
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
 
         try {
             $this->validate_api_key();
 
-            $raw_input = json_decode($this->input->raw_input_stream, true);
+            // Decode raw JSON
+            $raw_input_str = $this->input->raw_input_stream;
+            $raw_input = json_decode($raw_input_str, true);
 
-            $ref_id   = trim($raw_input['reference_number'] ?? $this->input->post('reference_number', TRUE) ?? '');
-            $name     = trim($raw_input['name'] ?? $this->input->post('name', TRUE) ?? '');
-            $amount   = trim($raw_input['amount'] ?? $this->input->post('amount', TRUE) ?? '');
-            $company  = trim($raw_input['company'] ?? $this->input->post('company', TRUE) ?? '');
-            $mobile   = trim($raw_input['mobile_number'] ?? $this->input->post('mobile_number', TRUE) ?? '');
-            $email    = trim($raw_input['email'] ?? $this->input->post('email', TRUE) ?? '');
-            $services = $raw_input['services'] ?? [];
-
-            // ✅ Basic validation
-            if (empty($ref_id)) {
-                return $this->respond_error('Reference number is required', 400);
+            // Fail fast if JSON is missing or invalid
+            if (empty($raw_input) || !is_array($raw_input)) {
+                return $this->respond_error('Invalid JSON body. Must be a valid JSON object.', 400);
             }
 
-            if (strlen($ref_id) > 30) {
-                return $this->respond_error('Reference number is too long. Maximum 30 characters allowed.', 400);
+            // Strict top-level validation
+            $required_keys = ['reference_number', 'name', 'amount', 'mobile_number', 'email', 'company', 'services'];
+
+            // Check missing keys
+            foreach ($required_keys as $key) {
+                if (!array_key_exists($key, $raw_input)) {
+                    return $this->respond_error("Missing required field: {$key}", 400);
+                }
             }
 
+            // Check extra keys
+            $extra_keys = array_diff(array_keys($raw_input), $required_keys);
+            if (!empty($extra_keys)) {
+                return $this->respond_error('JSON body is invalid');
+            }
+
+            // Validate top-level types
+            if (!is_string($raw_input['reference_number'])) return $this->respond_error('reference_number must be string', 400);
+            if (!is_string($raw_input['name'])) return $this->respond_error('name must be string', 400);
+            if (!is_float($raw_input['amount']) && !is_int($raw_input['amount'])) return $this->respond_error('amount must be number, not string', 400);
+            if (!is_string($raw_input['mobile_number'])) return $this->respond_error('mobile_number must be string', 400);
+            if (!is_string($raw_input['email'])) return $this->respond_error('email must be string', 400);
+            if (!is_string($raw_input['company'])) return $this->respond_error('company must be string', 400);
+
+            // Validate services
+            if (!is_array($raw_input['services']) || empty($raw_input['services'])) {
+                return $this->respond_error('services must be a non-empty array', 400);
+            }
+
+            foreach ($raw_input['services'] as $index => $srv) {
+                $required_service_keys = ['item_code', 'item_qty', 'item_amount', 'item_other_fees'];
+
+                // Missing keys in service
+                foreach ($required_service_keys as $skey) {
+                    if (!array_key_exists($skey, $srv)) {
+                        return $this->respond_error("Service at index {$index} is missing field: {$skey}", 400);
+                    }
+                }
+
+                // Extra keys in service
+                $extra_srv_keys = array_diff(array_keys($srv), $required_service_keys);
+                if (!empty($extra_srv_keys)) {
+                    return $this->respond_error("Service at index {$index} has extra field(s): " . implode(', ', $extra_srv_keys), 400);
+                }
+
+                // Exact type validation
+                if (!is_string($srv['item_code'])) return $this->respond_error("Service {$index} item_code must be string", 400);
+                if (!is_int($srv['item_qty'])) return $this->respond_error("Service {$index} item_qty must be integer", 400);
+                if (!is_float($srv['item_amount']) && !is_int($srv['item_amount'])) return $this->respond_error("Service {$index} item_amount must be number", 400);
+                if (!is_float($srv['item_other_fees']) && !is_int($srv['item_other_fees'])) return $this->respond_error("Service {$index} item_other_fees must be number", 400);
+            }
+
+            // ✅ Extract validated fields
+            $ref_id = trim($raw_input['reference_number']);
+            $name   = trim($raw_input['name']);
+            $amount = floatval($raw_input['amount']);
+            $company = trim($raw_input['company']);
+            $mobile = trim($raw_input['mobile_number']);
+            $email  = trim($raw_input['email']);
+            $services = $raw_input['services'];
+
+            // Duplicate transaction check
             if ($this->transaction->check_refid_exists($ref_id)) {
                 return $this->respond_error('Transaction already exists', 400);
             }
 
-            if (empty($name) || empty($company)) {
-                return $this->respond_error('Missing required fields', 400);
-            }
-
-            if (!empty($mobile) && !preg_match('/^09\d{9}$/', $mobile)) {
-                return $this->respond_error('Mobile number must be 11 digits starting with 09', 400);
-            }
-
-            // ✅ Start DB transaction
+            // Start DB transaction
             $this->db->trans_begin();
-
-            // ✅ Format defaults
-            $mobile = (!empty($mobile)) ? '63' . substr($mobile, 1) : "639000000000";
-            if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $email = "devs@netglobalsolutions.net";
-            }
+            $mobile = '63' . substr($mobile, 1);
+            if (empty($email)) $email = "devs@netglobalsolutions.net";
 
             $subtotal = 0;
-            $total_conv_fee = 0;
             $total_amount = 0;
 
-            // ✅ Prepare service list (normalize array format)
-            $service_list = !empty($services) ? (isset($services['item_code']) ? [$services] : $services) : [];
+            foreach ($services as $srv) {
+                $line_subtotal = ($srv['item_qty'] * $srv['item_amount']) + $srv['item_other_fees'];
+                $subtotal += $line_subtotal;
+                $total_amount += $line_subtotal;
 
-            foreach ($service_list as $srv) {
-                if (is_array($srv)) {
-                    $qty           = floatval($srv['item_qty'] ?? 1);
-                    $item_amount   = floatval($srv['item_amount'] ?? 0);
-                    $item_other    = floatval($srv['item_other_fees'] ?? 0);
-                    $conv_fee_item = floatval($srv['convenience_fee'] ?? 0);
-
-                    $line_subtotal = ($qty * $item_amount) + $item_other;
-                    $line_total    = $line_subtotal + $conv_fee_item;
-
-                    $subtotal       += $line_subtotal;
-                    $total_conv_fee += $conv_fee_item;
-                    $total_amount   += $line_total;
-                }
+                $this->transaction->insert_service($ref_id, $srv);
             }
 
-            // ✅ Auto-calculate amount if missing
-            if (empty($amount) || floatval($amount) <= 0) {
-                $amount = $total_amount;
-            }
-
-            // ✅ Compute convenience fee
-            $amount_val = floatval($amount);
-            if ($amount_val >= 1 && $amount_val <= 5000) {
-                $conv_fee = 25;
-            } elseif ($amount_val >= 5001 && $amount_val <= 1000000) {
-                $conv_fee = $amount_val * 0.005;
-            } elseif ($amount_val > 1000000) {
-                $conv_fee = $amount_val * 0.002;
-            } else {
+            // Compute convenience fee
+            if ($amount >= 1 && $amount <= 5000) $conv_fee = 25;
+            elseif ($amount >= 5001 && $amount <= 1000000) $conv_fee = $amount * 0.005;
+            elseif ($amount > 1000000) $conv_fee = $amount * 0.002;
+            else {
                 $this->db->trans_rollback();
                 return $this->respond_error('Invalid amount range for convenience fee computation.', 400);
             }
 
-            // ✅ Insert services
-            foreach ($service_list as $srv) {
-                if (is_array($srv)) {
-                    $this->transaction->insert_service($ref_id, $srv);
-                }
-            }
-
-            // ✅ Build payload for API
+            // Build API payload
             $data = [
-                "reference"      => 'REF-' . $this->generateReference(12),
-                "refid"          => $ref_id,
-                "name"           => $name,
-                "amount"         => number_format(floatval($subtotal) + floatval($conv_fee), 2, '.', ''),
-                "mobile_number"  => $mobile,
-                "email"          => $email,
-                "convience_fee"  => $conv_fee,
-                "company"        => $company,
-                "return_url"     => base_url('/success'),
-                "callback_url"   => base_url() . '/api-postback?ref_id=' . $ref_id
+                "reference" => 'REF-' . $this->generateReference(12),
+                "refid"     => $ref_id,
+                "name"      => $name,
+                "amount"    => number_format($subtotal + $conv_fee, 2, '.', ''),
+                "mobile_number" => $mobile,
+                "email"     => $email,
+                "convience_fee" => $conv_fee,
+                "company"   => $company,
+                "return_url" => base_url('/success'),
+                "callback_url" => base_url('/api-postback?ref_id=' . $ref_id)
             ];
 
             $result = $this->apiservice->generate_qr_api($data);
             if (is_string($result)) $result = json_decode($result, true);
             $apiData = $result['data'] ?? [];
-
             $raw_msg = $apiData['raw_string'] ?? json_encode($apiData);
-            $raw_json = json_decode($raw_msg, true);
-
-            if (!empty($raw_json['message']) && stripos($raw_json['message'], 'amount must be minimun') !== false) {
-                $this->db->trans_rollback();
-                $flat_response = $raw_json['raw_response'] ?? $raw_json;
-                return $this->respond_error($raw_json['message'], 400, ['raw_response' => $flat_response]);
-            }
 
             if (empty($apiData)) {
                 $this->db->trans_rollback();
-                return $this->respond_error('Failed to generate transaction from API', 502, [
-                    'raw_response' => $result['raw_response'] ?? $result
-                ]);
+                return $this->respond_error('Failed to generate transaction from API', 502, ['raw_response' => $result['raw_response'] ?? $result]);
             }
 
-            // ✅ Insert transaction record
+            // Insert transaction record
             $transaction = [
-                'trans_no'          => $apiData['reference_number'] ?? $data['reference'],
-                'trans_payor'       => $name,
-                'trans_mobile'      => $mobile,
-                'trans_email'       => $email,
-                'trans_company'     => $company,
-                'trans_sub_total'   => $subtotal,
-                'trans_conv_fee'    => $conv_fee,
-                'trans_grand_total' => floatval($subtotal) + floatval($conv_fee),
-                'trans_refid'       => $data['refid'] ?? '',
-                'trans_txid'        => $apiData['txn_ref'] ?? '',
-                'trans_ref'         => $data['reference'] ?? '',
-                'trans_raw_string'  => $raw_msg,
+                'trans_no' => $apiData['reference_number'] ?? $data['reference'],
+                'trans_payor' => $name,
+                'trans_mobile' => $mobile,
+                'trans_email' => $email,
+                'trans_company' => $company,
+                'trans_sub_total' => $subtotal,
+                'trans_conv_fee' => $conv_fee,
+                'trans_grand_total' => $subtotal + $conv_fee,
+                'trans_refid' => $data['refid'],
+                'trans_txid' => $apiData['txn_ref'] ?? '',
+                'trans_ref' => $data['reference'],
+                'trans_raw_string' => $raw_msg,
                 'trans_date_created' => date('Y-m-d H:i:s'),
-                'trans_status'      => 'CREATED'
+                'trans_status' => 'CREATED'
             ];
             $this->transaction->create_transaction($transaction);
-
-            // ✅ Commit transaction
             $this->db->trans_commit();
 
-            // ✅ Log API call
-            $request_method = $this->input->method(TRUE);
-            $request_params = !empty($raw_input) ? $raw_input : ($request_method === 'POST' ? $this->input->post(NULL, TRUE) : $this->input->get(NULL, TRUE));
-            $log_data = [
-                'api_method'      => $request_method,
-                'api_params'      => json_encode($request_params),
-                'api_response'    => json_encode($result),
-                'api_status'      => $result['status_code'] ?? null,
-                'api_request_at'  => date('Y-m-d H:i:s'),
-                'api_response_at' => date('Y-m-d H:i:s'),
-                'api_authorized'  => ""
-            ];
-            $this->Api->insert_log($log_data);
-
-            // ✅ Success response
+            // Success response
             $endpoint = rtrim(api_url(), '/') . '/payment-form?ref=' . $ref_id;
-            $response = [
-                'success' => true,
-                'status_code' => 200,
-                'response' => [
-                    'redirect_url'     => $endpoint,
-                    'raw_string'       => $raw_msg,
-                    'created_at'       => date('Y-m-d H:i:s'),
-                    'reference_number' => $data['refid'] ?? '',
-                    'ref_id'           => $data['reference'],
-                    'subtotal'         => number_format($subtotal, 2, '.', ''),
-                    'conv_fee'         => number_format($conv_fee, 2, '.', ''),
-                    'grand_total'      => number_format(floatval($subtotal) + floatval($conv_fee), 2, '.', '')
-                ]
-            ];
-
             return $this->output
                 ->set_status_header(200)
                 ->set_content_type('application/json', 'utf-8')
-                ->set_output(json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                ->set_output(json_encode([
+                    'success' => true,
+                    'status_code' => 200,
+                    'response' => [
+                        'redirect_url' => $endpoint,
+                        'raw_string' => $raw_msg,
+                        'created_at' => date('Y-m-d H:i:s'),
+                        'reference_number' => $data['refid'],
+                        'ref_id' => $data['reference'],
+                        'subtotal' => number_format($subtotal, 2, '.', ''),
+                        'conv_fee' => number_format($conv_fee, 2, '.', ''),
+                        'grand_total' => number_format($subtotal + $conv_fee, 2, '.', '')
+                    ]
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         } catch (Throwable $e) {
             $this->db->trans_rollback();
             return $this->respond_error('Unexpected server error', 500, [
                 'error' => $e->getMessage(),
-                'file'  => basename($e->getFile()),
-                'line'  => $e->getLine()
+                'file' => basename($e->getFile()),
+                'line' => $e->getLine()
             ]);
         }
     }
+
+
+
 
 
 
@@ -307,9 +293,8 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 405,
-                    'response' => [
-                        'message' => 'Method not allowed. Use GET instead.',
-                    ]
+                    'message' => 'Method not allowed. Use GET instead.',
+                    'response' => []
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
 
@@ -325,8 +310,8 @@ class Transaction extends CI_Controller
                     ->set_output(json_encode([
                         'success' => false,
                         'status_code' => 400,
+                        'message' => 'Missing ref_id',
                         'response' => [
-                            'message' => 'Missing ref_id',
                             'details' => []
                         ],
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -341,8 +326,8 @@ class Transaction extends CI_Controller
                     ->set_output(json_encode([
                         'status' => false,
                         'status_code' => 404,
+                        'message' => 'Transaction not found',
                         'response' => [
-                            'message' => 'Transaction not found',
                             'details' => []
                         ],
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -397,8 +382,8 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 500,
+                    'message' => 'Unexpected server error',
                     'response' => [
-                        'message' => 'Unexpected server error',
                         'details' => [
                             'exception' => $e->getMessage(),
                             'file' => basename($e->getFile()),
@@ -421,9 +406,8 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 405,
-                    'response' => [
-                        'message' => 'Method not allowed. Use POST instead.',
-                    ]
+                    'message' => 'Method not allowed. Use POST instead.',
+                    'response' => []
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
 
@@ -439,8 +423,8 @@ class Transaction extends CI_Controller
                     ->set_output(json_encode([
                         'status' => false,
                         'status_code' => 400,
+                        'message' => 'Missing ref_id',
                         'response' => [
-                            'message' => 'Missing ref_id',
                             'details' => []
                         ],
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -455,8 +439,8 @@ class Transaction extends CI_Controller
                     ->set_output(json_encode([
                         'status' => false,
                         'status_code' => 404,
+                        'message' => 'Transaction not found',
                         'response' => [
-                            'message' => 'Transaction not found',
                             'details' => []
                         ],
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -472,8 +456,8 @@ class Transaction extends CI_Controller
                     ->set_output(json_encode([
                         'status' => false,
                         'status_code' => 400,
+                        'message' => 'Invalid JSON payload',
                         'response' => [
-                            'message' => 'Invalid JSON payload',
                             'details' => []
                         ],
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -493,8 +477,8 @@ class Transaction extends CI_Controller
                     ->set_output(json_encode([
                         'status' => false,
                         'status_code' => 200,
+                        'message' => 'Duplicate callback - already processed',
                         'response' => [
-                            'message' => 'Duplicate callback - already processed',
                             'details' => []
                         ],
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -558,8 +542,8 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 500,
+                    'message' => 'Unexpected server error',
                     'response' => [
-                        'message' => 'Unexpected server error',
                         'details' => [
                             'exception' => $e->getMessage(),
                             'file' => basename($e->getFile()),
@@ -579,41 +563,63 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 405,
-                    'response' => [
-                        'message' => 'Method not allowed. Use POST instead.',
-                    ]
+                    'message' => 'Method not allowed. Use POST instead.',
+                    'response' => []
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
 
         try {
             $this->validate_api_key();
 
-            // ✅ Read JSON body
+            // ✅ Read raw JSON
             $raw_input = trim(file_get_contents("php://input"));
             $data = json_decode($raw_input, true);
 
+            // Check JSON validity
             if (!is_array($data)) {
-                $data = [];
-            }
-
-            // ✅ Accept "reference_number" from JSON body
-            $ref_id = $data['reference_number']
-                ?? $data['refid']
-                ?? $data['ref_id'];
-
-            if (empty($ref_id)) {
                 return $this->output
                     ->set_status_header(400)
                     ->set_content_type('application/json', 'utf-8')
                     ->set_output(json_encode([
                         'status' => false,
                         'status_code' => 400,
-                        'response' => [
-                            'message' => 'Missing reference_number',
-                            'details' => []
-                        ],
+                        'message' => 'JSON body is invalid',
+                        'response' => [],
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             }
+
+            // ✅ Strict required keys
+            $required_keys = ['reference_number'];
+            $errors = [];
+
+            // Check missing keys
+            foreach ($required_keys as $key) {
+                if (!array_key_exists($key, $data)) {
+                    $errors[] = "Missing required field: {$key}";
+                }
+            }
+
+            // Check extra keys
+            $extra_keys = array_diff(array_keys($data), $required_keys);
+            foreach ($extra_keys as $ekey) {
+                $errors[] = "Extra field detected: {$ekey}";
+            }
+
+            // Return 400 if any errors
+            if (!empty($errors)) {
+                return $this->output
+                    ->set_status_header(400)
+                    ->set_content_type('application/json', 'utf-8')
+                    ->set_output(json_encode([
+                        'status' => false,
+                        'status_code' => 400,
+                        'message' => 'JSON body is invalid',
+                        'response' => [],
+                    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            }
+
+            // ✅ Extract reference_number
+            $ref_id = $data['reference_number'];
 
             // ✅ Fetch transaction
             $transaction = $this->transaction->get_by_refid($ref_id);
@@ -624,10 +630,8 @@ class Transaction extends CI_Controller
                     ->set_output(json_encode([
                         'status' => false,
                         'status_code' => 404,
-                        'response' => [
-                            'message' => 'Transaction not found',
-                            'details' => []
-                        ],
+                        'message' => 'Transaction not found',
+                        'response' => [],
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             }
 
@@ -676,9 +680,9 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 500,
+                    'message' => 'Unexpected server error',
                     'response' => [
-                        'message' => 'Unexpected server error',
-                        'details' => [
+                        'errors' => [
                             'exception' => $e->getMessage(),
                             'file' => basename($e->getFile()),
                             'line' => $e->getLine()
@@ -687,8 +691,6 @@ class Transaction extends CI_Controller
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
     }
-
-
 
     public function doget_transactions()
     {
@@ -700,9 +702,8 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'status' => false,
                     'status_code' => 405,
-                    'response' => [
-                        'message' => 'Method not allowed. Use GET instead.',
-                    ]
+                    'message' => 'Method not allowed. Use GET instead.',
+                    'response' => []
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
 
@@ -787,8 +788,8 @@ class Transaction extends CI_Controller
                 ->set_output(json_encode([
                     'success'     => false,
                     'status_code' => 500,
+                    'message' => 'Unexpected server error',
                     'error'       => [
-                        'message' => 'Unexpected server error',
                         'details' => [
                             'exception' => $e->getMessage(),
                             'file'      => basename($e->getFile()),
@@ -823,8 +824,8 @@ class Transaction extends CI_Controller
         $response = [
             'status' => false,
             'status_code' => $status,
+            'message' => $message,
             'response' => [
-                'message' => $message,
                 'details' => $extra,
             ],
         ];
