@@ -178,7 +178,7 @@ class Transaction extends CI_Controller
 
             // ✅ Validate reference number length (max 30)
             if (strlen($ref_id) > 30) {
-                return $this->respond_error('Reference number is too long. Maximum 30 characters allowed.', 400);
+                return $this->respond_error('Reference number is too long. Maximum 45 characters allowed.', 400);
             }
 
             // ✅ Check duplicate transaction by refid
