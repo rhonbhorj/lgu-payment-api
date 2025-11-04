@@ -15,6 +15,13 @@ class Trans_Model extends CI_Model
             ->get('tbl_transactions')
             ->row();
     }
+    public function check_reference_exists($reference)
+    {
+        return $this->db->where('trans_refid', $reference)
+            ->limit(1)
+            ->get('tbl_transactions')
+            ->num_rows() > 0;
+    }
 
     // === Create a new transaction ===
     public function create_transaction($data)
@@ -114,10 +121,7 @@ class Trans_Model extends CI_Model
     }
 
     // === Get all categories ===
-    public function get_all_categories()
-    {
-        return $this->db->get('tbl_categories')->result_array();
-    }
+
 
     // === Fetch callback detail ===
     public function callback_data_detail($refid)

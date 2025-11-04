@@ -128,7 +128,7 @@ class Transaction extends CI_Controller
             // Check extra keys
             $extra_keys = array_diff(array_keys($raw_input), $required_keys);
             if (!empty($extra_keys)) {
-                return $this->respond_error('JSON body is invalid');
+                return $this->respond_error('JSON body is invalid', 400);
             }
 
             // Validate top-level types
@@ -176,16 +176,24 @@ class Transaction extends CI_Controller
             $email  = trim($raw_input['email']);
             $services = $raw_input['services'];
 
-            // Duplicate transaction check
+            // ✅ Validate reference number length (max 30)
+            if (strlen($ref_id) > 30) {
+                return $this->respond_error('Reference number is too long. Maximum 30 characters allowed.', 400);
+            }
+
+            // ✅ Check duplicate transaction by refid
             if ($this->transaction->check_refid_exists($ref_id)) {
                 return $this->respond_error('Transaction already exists', 400);
             }
 
-            // Start DB transaction
+            // ✅ Start DB transaction
             $this->db->trans_begin();
+
+            // ✅ Format mobile and email defaults
             $mobile = '63' . substr($mobile, 1);
             if (empty($email)) $email = "devs@netglobalsolutions.net";
 
+            // ✅ Calculate totals
             $subtotal = 0;
             $total_amount = 0;
 
@@ -197,18 +205,37 @@ class Transaction extends CI_Controller
                 $this->transaction->insert_service($ref_id, $srv);
             }
 
-            // Compute convenience fee
-            if ($amount >= 1 && $amount <= 5000) $conv_fee = 25;
-            elseif ($amount >= 5001 && $amount <= 1000000) $conv_fee = $amount * 0.005;
-            elseif ($amount > 1000000) $conv_fee = $amount * 0.002;
-            else {
+            // ✅ Compute convenience fee
+            if ($amount >= 1 && $amount <= 5000) {
+                $conv_fee = 25;
+            } elseif ($amount >= 5001 && $amount <= 1000000) {
+                $conv_fee = $amount * 0.005;
+            } elseif ($amount > 1000000) {
+                $conv_fee = $amount * 0.002;
+            } else {
                 $this->db->trans_rollback();
                 return $this->respond_error('Invalid amount range for convenience fee computation.', 400);
             }
 
-            // Build API payload
+            // ✅ Generate unique reference number (min 30 chars, no duplicates)
+            do {
+                // REF- prefix (4 chars) → generate 26 chars to make 30 total
+                $generatedRef = 'REF-' . $this->generateReference(26);
+
+                // Pad if shorter, trim if longer
+                if (strlen($generatedRef) < 30) {
+                    $generatedRef = str_pad($generatedRef, 30, strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 1)));
+                } elseif (strlen($generatedRef) > 30) {
+                    $generatedRef = substr($generatedRef, 0, 30);
+                }
+
+                // Check duplicate in DB
+                $exists = $this->transaction->check_reference_exists($generatedRef);
+            } while ($exists);
+
+            // ✅ Build API payload
             $data = [
-                "reference" => 'REF-' . $this->generateReference(12),
+                "reference" => $generatedRef,
                 "refid"     => $ref_id,
                 "name"      => $name,
                 "amount"    => number_format($subtotal + $conv_fee, 2, '.', ''),
@@ -227,10 +254,12 @@ class Transaction extends CI_Controller
 
             if (empty($apiData)) {
                 $this->db->trans_rollback();
-                return $this->respond_error('Failed to generate transaction from API', 502, ['raw_response' => $result['raw_response'] ?? $result]);
+                return $this->respond_error('Failed to generate transaction from API', 502, [
+                    'raw_response' => $result['raw_response'] ?? $result
+                ]);
             }
 
-            // Insert transaction record
+            // ✅ Insert transaction record
             $transaction = [
                 'trans_no' => $apiData['reference_number'] ?? $data['reference'],
                 'trans_payor' => $name,
@@ -250,7 +279,7 @@ class Transaction extends CI_Controller
             $this->transaction->create_transaction($transaction);
             $this->db->trans_commit();
 
-            // Success response
+            // ✅ Success response
             $endpoint = rtrim(api_url(), '/') . '/payment-form?ref=' . $ref_id;
             return $this->output
                 ->set_status_header(200)
@@ -278,11 +307,6 @@ class Transaction extends CI_Controller
             ]);
         }
     }
-
-
-
-
-
 
     public function dotransac_checkref($ref_id = 0)
     {
